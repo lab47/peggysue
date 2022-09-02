@@ -31,7 +31,7 @@ many returning nil.
 
 Here is the classic calculator example:
 
-```
+```golang
 package main
 
 import (
