@@ -1,5 +1,3 @@
-# Peggysue
-
 # Peggysue  [![GoDoc](https://godoc.org/github.com/lab47/peggysue?status.svg)](http://godoc.org/github.com/lab47/peggysue) [![Report card](https://goreportcard.com/badge/github.com/lab47/peggysue)](https://goreportcard.com/report/github.com/lab47/peggysue) [![Sourcegraph](https://sourcegraph.com/github.com/lab47/peggysue/-/badge.svg)](https://sourcegraph.com/github.com/lab47/peggysue?badge)
 
 A helpful, neighborhood PEG framework.
