@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"github.com/hashicorp/go-hclog"
@@ -52,11 +53,12 @@ type matchAny struct {
 }
 
 func (m *matchAny) match(s *state) result {
-	if s.pos >= len(s.input) {
+	pos := s.pos
+	if pos >= s.inputSize {
 		return result{}
 	}
 
-	b := s.input[s.pos]
+	b := s.input[pos]
 
 	var sz int
 
@@ -66,7 +68,8 @@ func (m *matchAny) match(s *state) result {
 		_, sz = utf8.DecodeRuneInString(s.cur())
 	}
 
-	s.advance(m, sz)
+	s.goodRange(m, sz)
+	s.advance(sz)
 
 	return result{matched: true}
 }
@@ -92,13 +95,15 @@ type matchString struct {
 }
 
 func (m *matchString) match(s *state) result {
-	if len(m.str) > len(s.cur()) {
+	sz := len(m.str)
+	if sz > len(s.cur()) {
 		s.bad(m)
 		return result{}
 	}
 
 	if strings.HasPrefix(s.cur(), m.str) {
-		s.advance(m, len(m.str))
+		s.goodRange(m, sz)
+		s.advance(sz)
 		return result{matched: true}
 	}
 
@@ -133,7 +138,8 @@ func (m *matchRegexp) match(s *state) result {
 		return result{}
 	}
 
-	s.advance(m, loc[1])
+	s.goodRange(m, loc[1])
+	s.advance(loc[1])
 	return result{matched: true}
 }
 
@@ -162,12 +168,13 @@ type matchCharRange struct {
 }
 
 func (m *matchCharRange) match(s *state) result {
-	if s.pos >= len(s.input) {
+	pos := s.pos
+	if pos >= s.inputSize {
 		s.bad(m)
 		return result{}
 	}
 
-	b := s.input[s.pos]
+	b := s.input[pos]
 
 	var (
 		rn rune
@@ -181,13 +188,14 @@ func (m *matchCharRange) match(s *state) result {
 		rn, sz = utf8.DecodeRuneInString(s.cur())
 	}
 
-	if rn >= m.start && rn <= m.end {
-		s.advance(m, sz)
-		return result{matched: true}
+	if rn < m.start || rn > m.end {
+		s.bad(m)
+		return result{}
 	}
 
-	s.bad(m)
-	return result{}
+	s.goodRange(m, sz)
+	s.advance(sz)
+	return result{matched: true}
 }
 
 func (m *matchCharRange) detectLeftRec(r Rule, rs ruleSet) bool {
@@ -572,6 +580,10 @@ func (m *matchRef) match(s *state) result {
 	// The memoization code was ported from
 	// https://github.com/we-like-parsers/pegen_experiments/blob/master/story7/memo.py
 
+	if s.memos == nil {
+		s.memos = make(map[int]map[Rule]*memoResult)
+	}
+
 	pos := s.mark()
 	memo := s.memos[pos]
 	if memo == nil {
@@ -671,12 +683,66 @@ func Memo(rule Rule) Rule {
 // to Named rules that were observed in the current scope.
 type Values interface {
 	Get(name string) interface{}
+
+	set(name string, val interface{}) bool
+}
+
+type cvEntry struct {
+	name string
+	val  interface{}
+}
+
+type compactedValues struct {
+	used    int
+	entries [5]cvEntry
+}
+
+func (v *compactedValues) set(name string, val interface{}) bool {
+	idx := v.used
+	if idx >= len(v.entries) {
+		return false
+	}
+
+	v.used = idx + 1
+
+	v.entries[idx].name = name
+	v.entries[idx].val = val
+
+	return true
+}
+
+func (v *compactedValues) Get(name string) interface{} {
+	for i := 0; i < v.used; i++ {
+		if v.entries[i].name == name {
+			return v.entries[i].val
+		}
+	}
+
+	return nil
+}
+
+var cvPool = sync.Pool{
+	New: func() interface{} {
+		return &compactedValues{}
+	},
+}
+
+func returnValues(v Values) {
+	if cv, ok := v.(*compactedValues); ok {
+		cv.used = 0
+		cvPool.Put(cv)
+	}
 }
 
 type valMap map[string]interface{}
 
 func (m valMap) Get(name string) interface{} {
 	return m[name]
+}
+
+func (m valMap) set(name string, val interface{}) bool {
+	m[name] = val
+	return true
 }
 
 type matchAction struct {
@@ -814,10 +880,11 @@ type matchScope struct {
 func (m *matchScope) match(s *state) result {
 	curValues := s.values
 	defer func() {
+		returnValues(s.values)
 		s.values = curValues
 	}()
 
-	v := make(valMap)
+	v := cvPool.Get().(*compactedValues)
 	s.values = v
 
 	return s.check(m, m.rule.match(s))
@@ -854,7 +921,14 @@ func (m *matchNamed) match(s *state) result {
 		if s.p.debug {
 			fmt.Printf("N (%p) %s => %v\n", s.values, m.name, res.value)
 		}
-		s.values[m.name] = res.value
+		if !s.values.set(m.name, res.value) {
+			vm := make(valMap)
+			for _, ent := range s.values.(*compactedValues).entries {
+				vm.set(ent.name, ent.val)
+			}
+
+			s.values = vm
+		}
 	}
 
 	return s.check(m, res)
@@ -1002,7 +1076,7 @@ type matchEOS struct {
 }
 
 func (m *matchEOS) match(s *state) result {
-	return s.check(m, result{matched: s.pos >= len(s.input)})
+	return s.check(m, result{matched: s.pos >= s.inputSize})
 }
 
 func (m *matchEOS) detectLeftRec(Rule, ruleSet) bool {
@@ -1079,12 +1153,18 @@ type memoResult struct {
 }
 
 type state struct {
-	p      *Parser
-	input  string
-	pos    int
-	memos  map[int]map[Rule]*memoResult
-	values valMap
-	maxPos int
+	p         *Parser
+	input     string
+	inputSize int
+	pos       int
+	memos     map[int]map[Rule]*memoResult
+	values    Values
+	maxPos    int
+
+	check     func(r Rule, res result) result
+	good      func(r Rule)
+	goodRange func(r Rule, sz int)
+	bad       func(r Rule)
 }
 
 func (s *state) cur() string {
@@ -1092,24 +1172,18 @@ func (s *state) cur() string {
 }
 
 func (s *state) curRune() string {
-	if s.pos >= len(s.input) {
+	if s.pos >= s.inputSize {
 		return "EOF"
 	} else {
 		return s.input[s.pos : s.pos+1]
 	}
 }
 
-func (s *state) advance(r Rule, l int) {
-	start := s.pos
-
+func (s *state) advance(l int) {
 	s.pos += l
 
 	if s.pos > s.maxPos {
 		s.maxPos = s.pos
-	}
-
-	if s.p.debug {
-		fmt.Printf("G @ %d-%d (%q) => %s\n", start, s.pos, s.input[start:s.pos], r.print())
 	}
 }
 
@@ -1121,25 +1195,35 @@ func (s *state) restore(p int) {
 	s.pos = p
 }
 
-func (s *state) good(r Rule) {
-	if s.p.debug {
-		fmt.Printf("G @ %d (%s) => %s\n", s.mark(), s.curRune(), r.print())
-	}
+func (s *state) goodRangeDebug(r Rule, sz int) {
+	fmt.Printf("G @ %d-%d (%q) => %s\n", s.pos, s.pos+sz, s.input[s.pos:s.pos+sz], r.print())
 }
 
-func (s *state) bad(r Rule) {
-	if s.p.debug {
-		fmt.Printf("B @ %d (%s) => %s\n", s.mark(), s.curRune(), r.print())
-	}
+func goodRangeId(r Rule, sz int) {}
+
+func (s *state) goodDebug(r Rule) {
+	fmt.Printf("G @ %d (%s) => %s\n", s.mark(), s.curRune(), r.print())
 }
 
-func (s *state) check(r Rule, res result) result {
+func goodId(r Rule) {}
+
+func (s *state) badDebug(r Rule) {
+	fmt.Printf("B @ %d (%s) => %s\n", s.mark(), s.curRune(), r.print())
+}
+
+func badId(r Rule) {}
+
+func (s *state) checkDebug(r Rule, res result) result {
 	if res.matched {
 		s.good(r)
 	} else {
 		s.bad(r)
 	}
 
+	return res
+}
+
+func checkId(r Rule, res result) result {
 	return res
 }
 
@@ -1178,11 +1262,25 @@ func New(opts ...Option) *Parser {
 
 func (p *Parser) parse(r Rule, input string) (*state, result) {
 	s := &state{
-		p:      p,
-		input:  input,
-		memos:  make(map[int]map[Rule]*memoResult),
-		values: make(valMap),
+		p:         p,
+		input:     input,
+		inputSize: len(input),
+		values:    cvPool.Get().(Values),
 	}
+
+	if p.debug {
+		s.check = s.checkDebug
+		s.good = s.goodDebug
+		s.goodRange = s.goodRangeDebug
+		s.bad = s.badDebug
+	} else {
+		s.check = checkId
+		s.good = goodId
+		s.goodRange = goodRangeId
+		s.bad = badId
+	}
+
+	defer returnValues(s.values)
 
 	return s, r.match(s)
 }
@@ -1196,7 +1294,7 @@ func (p *Parser) Parse(r Rule, input string) (val interface{}, matched bool, err
 		return nil, false, nil
 	}
 
-	if s.pos != len(s.input) {
+	if s.pos != s.inputSize {
 		return res.value, true, ErrInputNotConsumed
 	}
 

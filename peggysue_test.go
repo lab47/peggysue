@@ -552,41 +552,24 @@ func (t *testPlusNode) SetPosition(start, end int) {
 func BenchmarkParse(b *testing.B) {
 	p := New()
 
-	/*
-		num := Transform(Plus(Range('0', '9')), func(str string) (interface{}, error) {
-			return nil, nil
+	num := Transform(Plus(Range('0', '9')), func(str string) interface{} {
+		return nil
+	})
 
-			i, err := strconv.Atoi(str)
-			if err != nil {
-				return nil, err
-			}
+	i := Named("i", num)
+	j := Named("j", num)
 
-			return &testIntNode{i: i}, nil
-		})
-	*/
-	num := Plus(Range('0', '9'))
-
-	// i := Named("i", num)
-	// j := Named("j", num)
-	i := num
-	j := num
-
-	calc := Or(
-		Seq(i, S("-"), j),
-		Seq(i, S("+"), j),
-		// ),
-	/*
+	calc := Action(
+		Or(
+			Seq(i, S("-"), j),
+			Seq(i, S("+"), j),
+		),
 		func(v Values) interface{} {
 			return nil
-			return &testPlusNode{
-				i: v.Get("i").(*testIntNode),
-				j: v.Get("j").(*testIntNode),
-			}
-		}
-	*/
+		},
 	)
 
 	for i := 0; i < b.N; i++ {
-		p.parse(calc, "3+4")
+		p.Parse(calc, "3+4")
 	}
 }
