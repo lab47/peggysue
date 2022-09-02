@@ -867,9 +867,11 @@ func Apply(rule Rule, v interface{}) Rule {
 		panic("apply must be passed a struct to infer the type of")
 	}
 
-	return &matchApply{
-		rule: rule,
-		typ:  rv.Type(),
+	return &matchScope{
+		rule: &matchApply{
+			rule: rule,
+			typ:  rv.Type(),
+		},
 	}
 }
 
