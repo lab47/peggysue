@@ -22,7 +22,7 @@ off just run again than saved.
 Each rule when executed against the input stream will produce a value when the rule
 matches successfully. The documentaiton for each rule creationing function documentments
 the value of the rule. Action, Transform, and Apply are rules that exist explicitly
-to return a value. The other rules have a heiristic about what value they return, with
+to return a value. The other rules have a heuristic about what value they return, with
 many returning nil.
 
 # Example
