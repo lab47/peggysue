@@ -324,7 +324,7 @@ func (m *matchSeq) print() string {
 }
 
 // Seq returns a rule that will attempt to match each of the given rules
-// in order. It only matches succesfully if each of it's rules match.
+// in order. It only matches successfully if each of it's rules match.
 //
 // The value of the match is the value of the right most sub-rule that
 // produced a non-nil value.
@@ -447,7 +447,7 @@ func (m *matchOptional) print() string {
 }
 
 // Maybe returns a rule that will allow it's rule to match, but
-// will always return that it's succesfully matched, regardless
+// will always return that it's successfully matched, regardless
 // of what it's rule does. This corresponds with the question mark
 // rule ("e?") in most PEGs.
 //
