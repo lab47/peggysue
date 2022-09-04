@@ -523,6 +523,19 @@ func TestParse(t *testing.T) {
 		r.Equal(3, n.i.Val)
 		r.Equal(4, n.j.Val)
 	})
+
+	t.Run("after generates rules that run another rule after", func(t *testing.T) {
+		tk := After(WS)
+
+		p := New()
+
+		rule := Seq(tk(S("foo")), tk(S("bar")))
+
+		_, ok, err := p.Parse(rule, "foo \t bar")
+		r := require.New(t)
+		r.NoError(err)
+		r.True(ok)
+	})
 }
 
 type testIntNode struct {

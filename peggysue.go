@@ -90,6 +90,27 @@ func Any() Rule {
 	return &matchAny{}
 }
 
+// After returns a function that when called, returns a new rule
+// that will match the rule passed to the function, then the
+// function passed to After.
+// For example:
+//    tk := After(Set(' ', '\t'))
+//    foo = tk(S("foo"))
+// The rule foo will match "foo" on the input stream, then match
+// ' ' or '\t'.
+// The common use case for After is basically the above example:
+// a simple helper to create token-style rules that match and ignore
+// whitespace.
+//
+// For example, utilizing the WS value:
+// token := After(WS)
+// ifRule := token("if")
+func After(after Rule) func(r Rule) Rule {
+	return func(r Rule) Rule {
+		return Seq(r, after)
+	}
+}
+
 type matchString struct {
 	str string
 }
@@ -218,6 +239,73 @@ func Range(start, end rune) Rule {
 		end:   end,
 	}
 }
+
+type matchCharSet struct {
+	set []rune
+}
+
+func (m *matchCharSet) match(s *state) result {
+	pos := s.pos
+	if pos >= s.inputSize {
+		s.bad(m)
+		return result{}
+	}
+
+	b := s.input[pos]
+
+	var (
+		rn rune
+		sz int
+	)
+
+	if b < utf8.RuneSelf {
+		rn = rune(b)
+		sz = 1
+	} else {
+		rn, sz = utf8.DecodeRuneInString(s.cur())
+	}
+
+	for _, mr := range m.set {
+		if rn == mr {
+			s.good(m)
+			s.advance(sz)
+			return result{matched: true}
+		}
+	}
+
+	s.bad(m)
+	return result{}
+}
+
+func (m *matchCharSet) detectLeftRec(r Rule, rs ruleSet) bool {
+	return false
+}
+
+func (m *matchCharSet) print() string {
+	var strs []string
+
+	for _, r := range m.set {
+		strs = append(strs, fmt.Sprintf("%c", r))
+
+	}
+	return "{" + strings.Join(strs, ",") + "}"
+}
+
+// Set returns a rule that will match the next rune in the input
+// stream as one of the given runes. This corresponds
+// with the regexp pattern `[abc]` but is much faster as it does not require
+// any regexp tracking.
+//
+// The value of the match is nil.
+func Set(runes ...rune) Rule {
+	return &matchCharSet{
+		set: runes,
+	}
+}
+
+// WS is the start whitespace rule, matching any amount of spaces, tabs,
+// or newlines.
+var WS = Star(Set(' ', '\t', '\n'))
 
 type matchOr struct {
 	rules []Rule
