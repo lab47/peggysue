@@ -719,14 +719,6 @@ func (m *matchRef) match(s *state) result {
 		res := m.rule.match(s)
 		endPos := s.mark()
 
-		if res.matched {
-			if endPos <= pos {
-				panic("bad memo")
-			}
-		} else if endPos != pos {
-			panic("bad memo")
-		}
-
 		memo[m] = &memoResult{result: res, endPos: endPos}
 
 		return s.check(m, res)
