@@ -90,27 +90,6 @@ func Any() Rule {
 	return &matchAny{}
 }
 
-// After returns a function that when called, returns a new rule
-// that will match the rule passed to the function, then the
-// function passed to After.
-// For example:
-//    tk := After(Set(' ', '\t'))
-//    foo = tk(S("foo"))
-// The rule foo will match "foo" on the input stream, then match
-// ' ' or '\t'.
-// The common use case for After is basically the above example:
-// a simple helper to create token-style rules that match and ignore
-// whitespace.
-//
-// For example, utilizing the WS value:
-// token := After(WS)
-// ifRule := token("if")
-func After(after Rule) func(r Rule) Rule {
-	return func(r Rule) Rule {
-		return Seq(r, after)
-	}
-}
-
 type matchString struct {
 	str string
 }
@@ -303,9 +282,57 @@ func Set(runes ...rune) Rule {
 	}
 }
 
-// WS is the start whitespace rule, matching any amount of spaces, tabs,
-// or newlines.
-var WS = Star(Set(' ', '\t', '\n'))
+type matchRunePredicate struct {
+	fn func(r rune) bool
+}
+
+func (m *matchRunePredicate) match(s *state) result {
+	pos := s.pos
+	if pos >= s.inputSize {
+		s.bad(m)
+		return result{}
+	}
+
+	b := s.input[pos]
+
+	var (
+		rn rune
+		sz int
+	)
+
+	if b < utf8.RuneSelf {
+		rn = rune(b)
+		sz = 1
+	} else {
+		rn, sz = utf8.DecodeRuneInString(s.cur())
+	}
+
+	if m.fn(rn) {
+		s.good(m)
+		s.advance(sz)
+		return result{matched: true}
+	}
+
+	return result{}
+}
+
+func (m *matchRunePredicate) detectLeftRec(r Rule, rs ruleSet) bool {
+	return false
+}
+
+func (m *matchRunePredicate) print() string {
+	return ". &{ /* check rune */ }"
+}
+
+// Rune returns a rule that attempts to match the next rune in the
+// input stream againnt a Go function. These are useful for be able
+// utilizing existing logic to match rules (such as logic in the
+// unicode package)
+func Rune(fn func(rune) bool) Rule {
+	return &matchRunePredicate{
+		fn: fn,
+	}
+}
 
 type matchOr struct {
 	rules []Rule
@@ -1284,13 +1311,13 @@ func (s *state) goodRangeDebug(r Rule, sz int) {
 func goodRangeId(r Rule, sz int) {}
 
 func (s *state) goodDebug(r Rule) {
-	fmt.Printf("G @ %d (%s) => %s\n", s.mark(), s.curRune(), r.print())
+	fmt.Printf("G @ %d (%q) => %s\n", s.mark(), s.curRune(), r.print())
 }
 
 func goodId(r Rule) {}
 
 func (s *state) badDebug(r Rule) {
-	fmt.Printf("B @ %d (%s) => %s\n", s.mark(), s.curRune(), r.print())
+	fmt.Printf("B @ %d (%q) => %s\n", s.mark(), s.curRune(), r.print())
 }
 
 func badId(r Rule) {}
@@ -1311,8 +1338,9 @@ func checkId(r Rule, res result) result {
 
 // Parser is the interface for running a rule against some input
 type Parser struct {
-	log   hclog.Logger
-	debug bool
+	log     hclog.Logger
+	partial bool
+	debug   bool
 }
 
 type Option func(p *Parser)
@@ -1326,6 +1354,12 @@ func WithDebug(on bool) Option {
 func WithLogger(log hclog.Logger) Option {
 	return func(p *Parser) {
 		p.log = log
+	}
+}
+
+func WithPartial(on bool) Option {
+	return func(p *Parser) {
+		p.partial = on
 	}
 }
 
@@ -1376,8 +1410,10 @@ func (p *Parser) Parse(r Rule, input string) (val interface{}, matched bool, err
 		return nil, false, nil
 	}
 
-	if s.pos != s.inputSize {
-		return res.value, true, ErrInputNotConsumed
+	if !p.partial {
+		if s.pos != s.inputSize {
+			return res.value, false, ErrInputNotConsumed
+		}
 	}
 
 	return res.value, true, nil

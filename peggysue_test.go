@@ -135,7 +135,7 @@ func TestParse(t *testing.T) {
 
 		_, ok, err = p.Parse(r2, "blah")
 		r.ErrorIs(err, ErrInputNotConsumed)
-		r.True(ok)
+		r.False(ok)
 
 		_, ok, err = p.Parse(r2, "foofoofoo")
 		r.NoError(err)
@@ -175,7 +175,7 @@ func TestParse(t *testing.T) {
 
 		_, ok, err = p.Parse(r2, "blah")
 		r.ErrorIs(err, ErrInputNotConsumed)
-		r.True(ok)
+		r.False(ok)
 	})
 
 	t.Run("parses a check", func(t *testing.T) {
@@ -524,18 +524,6 @@ func TestParse(t *testing.T) {
 		r.Equal(4, n.j.Val)
 	})
 
-	t.Run("after generates rules that run another rule after", func(t *testing.T) {
-		tk := After(WS)
-
-		p := New()
-
-		rule := Seq(tk(S("foo")), tk(S("bar")))
-
-		_, ok, err := p.Parse(rule, "foo \t bar")
-		r := require.New(t)
-		r.NoError(err)
-		r.True(ok)
-	})
 }
 
 type testIntNode struct {
