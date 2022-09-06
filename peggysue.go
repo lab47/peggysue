@@ -666,6 +666,12 @@ type matchRef struct {
 }
 
 func (r *matchRef) Set(rule Rule) {
+	// Fail because this is almost always a programmer mistake
+	// where they used the same name twice on accident.
+	if r.rule != nil {
+		panic(fmt.Sprintf("rule already set: %s", r.name))
+	}
+
 	// When invoking a ref, introduce a new scope since this matches the
 	// semantics of all parsers, where within a single named rule, there
 	// is a unique scope of produced values from it's parts.
@@ -1028,7 +1034,7 @@ func (m *matchNamed) match(s *state) result {
 	res := m.rule.match(s)
 	if res.matched {
 		if s.p.debug {
-			fmt.Printf("N (%p) %s => %v\n", s.values, m.name, res.value)
+			fmt.Printf("N (%p) %s => %#v\n", s.values, m.name, res.value)
 		}
 		if !s.values.set(m.name, res.value) {
 			vm := make(valMap)
