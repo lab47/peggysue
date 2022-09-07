@@ -99,6 +99,19 @@ func (n *NumberValue) AsBigInt() (*big.Int, error) {
 	return asBigInt(n.Str, int64(n.Base))
 }
 
+func digToByte(c byte) byte {
+	switch {
+	case '0' <= c && c <= '9':
+		return c - '0'
+	case 'A' <= c && c <= 'Z':
+		return c - 'A' + 10
+	case 'a' <= c && c <= 'z':
+		return lower(c) - 'a' + 10
+	default:
+		panic("bad digit")
+	}
+}
+
 func asBigInt(str string, base int64) (*big.Int, error) {
 	var x int64
 
