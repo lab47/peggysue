@@ -123,7 +123,14 @@ func (m *matchString) print() string {
 //
 // The value of the match is nil.
 func S(str string) Rule {
-	return &matchString{str: str}
+	switch len(str) {
+	case 1:
+		return &matchString1{b: str[0]}
+	case 2:
+		return &matchString2{a: str[0], b: str[1]}
+	default:
+		return &matchString{str: str}
+	}
 }
 
 type matchRegexp struct {
@@ -388,6 +395,12 @@ func (m *matchOr) print() string {
 //
 // The value of the match is the value of the sub-rule that matched correctly.
 func Or(rules ...Rule) Rule {
+	switch len(rules) {
+	case 1:
+		return rules[0]
+	case 2:
+		return &matchEither{a: rules[0], b: rules[1]}
+	}
 	return &matchOr{rules: rules}
 }
 
@@ -444,7 +457,16 @@ func (m *matchSeq) print() string {
 // The value of the match is the value of the right most sub-rule that
 // produced a non-nil value.
 func Seq(rules ...Rule) Rule {
-	return &matchSeq{rules: rules}
+	switch len(rules) {
+	case 1:
+		return rules[0]
+	case 2:
+		return &matchBoth{a: rules[0], b: rules[1]}
+	case 3:
+		return &matchThree{a: rules[0], b: rules[1], c: rules[2]}
+	default:
+		return &matchSeq{rules: rules}
+	}
 }
 
 type matchZeroOrMore struct {
@@ -538,6 +560,91 @@ func Plus(rule Rule) Rule {
 	return &matchOneOrMore{rule: rule}
 }
 
+type matchMany struct {
+	min, max int
+	rule     Rule
+	fn       func([]interface{}) interface{}
+}
+
+var manyResultsPool = sync.Pool{
+	New: func() interface{} {
+		val := make([]interface{}, 0, 10)
+		return &val
+	},
+}
+
+func (m *matchMany) match(s *state) result {
+	pv := manyResultsPool.Get().(*[]interface{})
+	defer manyResultsPool.Put(pv)
+
+	results := (*pv)[:0]
+
+	for {
+		res := m.rule.match(s)
+		if !res.matched {
+			break
+
+		}
+
+		results = append(results, res.value)
+
+		if m.max != -1 && len(results) == m.max {
+			break
+		}
+	}
+
+	if len(results) < m.min {
+		s.bad(m)
+		return result{}
+	}
+
+	var val interface{}
+
+	if m.fn != nil {
+		val = m.fn(results)
+	}
+
+	s.good(m)
+	return result{value: val, matched: true}
+}
+
+func (m *matchMany) detectLeftRec(r Rule, rs ruleSet) bool {
+	if !rs.Add(m.rule) {
+		return false
+	}
+
+	return m.rule == r || m.rule.detectLeftRec(r, rs)
+}
+
+func (m *matchMany) print() string {
+	if m.min == 0 && m.max == -1 {
+		return addParens(m.rule) + "*"
+	}
+	if m.min == 1 && m.max == -1 {
+		return addParens(m.rule) + "+"
+	}
+
+	return fmt.Sprintf("%s[%d,%d]", addParens(m.rule), m.min, m.max)
+}
+
+// Many returns a rule that will attempt to match it's given rule
+// at least `min` times, and at most `max` times. If max is -1, there is no
+// maximum. Upon matching results, if `fn` is not nil, it wil be called and
+// passed the results of each sub-rule value. If `fn` is nil, the result
+// is the nil.
+//
+// Important note: the results slice is reused to reduce allocations. The results
+// should be copied out of the results slice if needed.
+//
+// This is a general purpose form of Star and Plus that adds the ability
+// to process the resulting values as a slice.
+//
+// The value of the return value of `fn` or, if `fn` is nil, the slice
+// the sub-rule values.
+func Many(rule Rule, min, max int, fn func([]interface{}) interface{}) Rule {
+	return &matchMany{rule: rule, min: min, max: max, fn: fn}
+}
+
 type matchOptional struct {
 	rule Rule
 }
@@ -610,6 +717,10 @@ type matchNot struct {
 func (m *matchNot) match(s *state) result {
 	defer s.restore(s.mark())
 
+	if s.pos >= len(s.input) {
+		return result{}
+	}
+
 	res := m.rule.match(s)
 	res.matched = !res.matched
 
@@ -636,6 +747,9 @@ func (m *matchNot) print() string {
 //
 // The value of the match is the value of the sub-rule.
 func Not(rule Rule) Rule {
+	if ms, ok := rule.(*matchString1); ok {
+		return &matchNotByte{ms.b}
+	}
 	return &matchNot{rule: rule}
 }
 
