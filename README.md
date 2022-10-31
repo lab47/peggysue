@@ -77,8 +77,8 @@ func main() {
 				return i * j
 			}),
 			p.Action(p.Seq(p.Named("i", term), p.S("/"), p.Named("j", num)), func(v p.Values) interface{} {
-				i := v.Get("a").(int)
-				j := v.Get("b").(int)
+				i := v.Get("i").(int)
+				j := v.Get("j").(int)
 				return i / j
 			}),
 			num,
