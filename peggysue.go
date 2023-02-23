@@ -1,7 +1,6 @@
 package peggysue
 
 import (
-	"errors"
 	"fmt"
 	"reflect"
 	"regexp"
@@ -11,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/hashicorp/go-hclog"
+	"golang.org/x/exp/slices"
 )
 
 // SetPositioner is an optional interface. When values implement it, peggysue
@@ -30,6 +30,9 @@ type Rule interface {
 	match(s *state) result
 	detectLeftRec(r Rule, rs ruleSet) bool
 	print() string
+
+	Name() string
+	SetName(name string)
 }
 
 type result struct {
@@ -49,7 +52,26 @@ func (rs ruleSet) Add(r Rule) bool {
 
 // These are the rules!
 
+type basicRule struct {
+	name string
+}
+
+func (b *basicRule) Name() string {
+	return b.name
+}
+
+func (b *basicRule) SetName(name string) {
+	b.name = name
+}
+
+// N sets the name of the given rule and returns it.
+func N(name string, r Rule) Rule {
+	r.SetName(name)
+	return r
+}
+
 type matchAny struct {
+	basicRule
 }
 
 func (m *matchAny) match(s *state) result {
@@ -69,7 +91,7 @@ func (m *matchAny) match(s *state) result {
 	}
 
 	s.goodRange(m, sz)
-	s.advance(sz)
+	s.advance(sz, m)
 
 	return result{matched: true}
 }
@@ -91,6 +113,7 @@ func Any() Rule {
 }
 
 type matchString struct {
+	basicRule
 	str string
 }
 
@@ -103,7 +126,7 @@ func (m *matchString) match(s *state) result {
 
 	if strings.HasPrefix(s.cur(), m.str) {
 		s.goodRange(m, sz)
-		s.advance(sz)
+		s.advance(sz, m)
 		return result{matched: true}
 	}
 
@@ -134,6 +157,7 @@ func S(str string) Rule {
 }
 
 type matchRegexp struct {
+	basicRule
 	re  *regexp.Regexp
 	str string
 }
@@ -146,7 +170,7 @@ func (m *matchRegexp) match(s *state) result {
 	}
 
 	s.goodRange(m, loc[1])
-	s.advance(loc[1])
+	s.advance(loc[1], m)
 	return result{matched: true}
 }
 
@@ -171,6 +195,7 @@ func Re(re string) Rule {
 }
 
 type matchCharRange struct {
+	basicRule
 	start, end rune
 }
 
@@ -201,7 +226,7 @@ func (m *matchCharRange) match(s *state) result {
 	}
 
 	s.goodRange(m, sz)
-	s.advance(sz)
+	s.advance(sz, m)
 	return result{matched: true}
 }
 
@@ -227,6 +252,7 @@ func Range(start, end rune) Rule {
 }
 
 type matchCharSet struct {
+	basicRule
 	set []rune
 }
 
@@ -254,7 +280,7 @@ func (m *matchCharSet) match(s *state) result {
 	for _, mr := range m.set {
 		if rn == mr {
 			s.good(m)
-			s.advance(sz)
+			s.advance(sz, m)
 			return result{matched: true}
 		}
 	}
@@ -271,7 +297,7 @@ func (m *matchCharSet) print() string {
 	var strs []string
 
 	for _, r := range m.set {
-		strs = append(strs, fmt.Sprintf("%c", r))
+		strs = append(strs, fmt.Sprintf("%q", r))
 
 	}
 	return "{" + strings.Join(strs, ",") + "}"
@@ -290,6 +316,7 @@ func Set(runes ...rune) Rule {
 }
 
 type matchRunePredicate struct {
+	basicRule
 	fn func(r rune) bool
 }
 
@@ -316,7 +343,7 @@ func (m *matchRunePredicate) match(s *state) result {
 
 	if m.fn(rn) {
 		s.good(m)
-		s.advance(sz)
+		s.advance(sz, m)
 		return result{matched: true}
 	}
 
@@ -342,6 +369,7 @@ func Rune(fn func(rune) bool) Rule {
 }
 
 type matchOr struct {
+	basicRule
 	rules []Rule
 }
 
@@ -349,7 +377,7 @@ func (m *matchOr) match(s *state) result {
 	save := s.mark()
 
 	for _, r := range m.rules {
-		res := r.match(s)
+		res := s.match(r)
 		if res.matched {
 			s.good(m)
 			return res
@@ -384,7 +412,7 @@ func (m *matchOr) print() string {
 	var subs []string
 
 	for _, r := range m.rules {
-		subs = append(subs, r.print())
+		subs = append(subs, Print(r))
 	}
 	return strings.Join(subs, " | ")
 }
@@ -404,16 +432,115 @@ func Or(rules ...Rule) Rule {
 	return &matchOr{rules: rules}
 }
 
+type branch struct {
+	name string
+	r    Rule
+}
+
+type matchBranch struct {
+	basicRule
+	rules []branch
+	ref   Ref
+}
+
+func (m *matchBranch) match(s *state) result {
+	save := s.mark()
+
+	rs := s.refStack
+
+	defer func() {
+		s.refStack = rs
+	}()
+
+	for _, r := range m.rules {
+		s.refStack = append(rs, r.name)
+
+		res := s.match(r.r)
+		if res.matched {
+			s.good(m)
+			return res
+		}
+
+		s.restore(save)
+	}
+
+	s.bad(m)
+	return result{}
+}
+
+func (m *matchBranch) detectLeftRec(r Rule, rs ruleSet) bool {
+	for _, sub := range m.rules {
+		if !rs.Add(sub.r) {
+			return false
+		}
+
+		if r == sub.r {
+			return true
+		}
+
+		if sub.r.detectLeftRec(r, rs) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (m *matchBranch) print() string {
+	var subs []string
+
+	for _, r := range m.rules {
+		subs = append(subs, r.name)
+	}
+	return strings.Join(subs, " | ")
+}
+
+func (m *matchBranch) Add(name string, r Rule) Rule {
+	m.rules = append(m.rules, branch{"+" + name, r})
+
+	return r
+}
+
+func (m *matchBranch) Ref() Ref {
+	return m.ref
+}
+
+type BranchesBuilder interface {
+	// Add another branch
+	Add(name string, branch Rule) Rule
+}
+
+// Or returns a Rule that will try each of the given rules, completing when
+// the first one successfully matches. This corresponds with a PEG's "ordered
+// choice" operation.
+//
+// The value of the match is the value of the sub-rule that matched correctly.
+func Branches(name string, f func(b BranchesBuilder, r Rule)) Rule {
+	mb := &matchBranch{
+		ref: R(name),
+	}
+
+	f(mb, mb.ref)
+
+	mb.ref.Set(mb)
+
+	return mb.ref
+}
+
 type matchSeq struct {
+	basicRule
 	rules []Rule
 }
 
 func (m *matchSeq) match(s *state) result {
 	var ret result
 
+	mark := s.mark()
+
 	for _, r := range m.rules {
-		res := r.match(s)
+		res := s.match(r)
 		if !res.matched {
+			s.restore(mark)
 			s.bad(m)
 			return result{}
 		}
@@ -446,7 +573,7 @@ func (m *matchSeq) print() string {
 	var subs []string
 
 	for _, r := range m.rules {
-		subs = append(subs, r.print())
+		subs = append(subs, Print(r))
 	}
 	return strings.Join(subs, " ")
 }
@@ -470,15 +597,21 @@ func Seq(rules ...Rule) Rule {
 }
 
 type matchZeroOrMore struct {
+	basicRule
 	rule Rule
 }
 
 func (m *matchZeroOrMore) match(s *state) result {
+
 	for {
-		res := m.rule.match(s)
+		mark := s.mark()
+
+		res := s.match(m.rule)
 		if res.matched {
 			continue
 		}
+
+		s.restore(mark)
 
 		s.good(m)
 		return result{value: res.value, matched: true}
@@ -509,22 +642,33 @@ func Star(rule Rule) Rule {
 }
 
 type matchOneOrMore struct {
+	basicRule
 	rule Rule
 }
 
 func (m *matchOneOrMore) match(s *state) result {
-	res := m.rule.match(s)
+	mark := s.mark()
+
+	res := s.match(m.rule)
 	if !res.matched {
+		s.restore(mark)
 		return result{}
 	}
 
+	val := res.value
+
 	for {
-		res := m.rule.match(s)
+		mark := s.mark()
+
+		res := s.match(m.rule)
 		if res.matched {
+			val = res.value
 			continue
 		}
 
-		return s.check(m, result{value: res.value, matched: true})
+		s.restore(mark)
+
+		return s.check(m, result{value: val, matched: true})
 	}
 }
 
@@ -539,9 +683,9 @@ func (m *matchOneOrMore) detectLeftRec(r Rule, rs ruleSet) bool {
 func addParens(r Rule) string {
 	switch r.(type) {
 	case *matchOr, *matchSeq:
-		return "(" + r.print() + ")"
+		return "(" + Print(r) + ")"
 	default:
-		return r.print()
+		return Print(r)
 	}
 }
 
@@ -561,6 +705,7 @@ func Plus(rule Rule) Rule {
 }
 
 type matchMany struct {
+	basicRule
 	min, max int
 	rule     Rule
 	fn       func([]interface{}) interface{}
@@ -579,9 +724,14 @@ func (m *matchMany) match(s *state) result {
 
 	results := (*pv)[:0]
 
+	top := s.mark()
+
 	for {
-		res := m.rule.match(s)
+		mark := s.mark()
+
+		res := s.match(m.rule)
 		if !res.matched {
+			s.restore(mark)
 			break
 
 		}
@@ -594,6 +744,7 @@ func (m *matchMany) match(s *state) result {
 	}
 
 	if len(results) < m.min {
+		s.restore(top)
 		s.bad(m)
 		return result{}
 	}
@@ -641,16 +792,32 @@ func (m *matchMany) print() string {
 //
 // The value of the return value of `fn` or, if `fn` is nil, the slice
 // the sub-rule values.
-func Many(rule Rule, min, max int, fn func([]interface{}) interface{}) Rule {
+func Many(rule Rule, min, max int, fn func(values []interface{}) interface{}) Rule {
 	return &matchMany{rule: rule, min: min, max: max, fn: fn}
 }
 
+func copyGroup(values []interface{}) interface{} {
+	return slices.Clone(values)
+}
+
+func PlusCapture(rule Rule) Rule {
+	return Many(rule, 1, -1, copyGroup)
+}
+
 type matchOptional struct {
+	basicRule
 	rule Rule
 }
 
 func (m *matchOptional) match(s *state) result {
-	res := m.rule.match(s)
+	mark := s.mark()
+
+	res := s.match(m.rule)
+
+	if !res.matched {
+		s.restore(mark)
+	}
+
 	res.matched = true
 
 	return s.check(m, res)
@@ -665,7 +832,7 @@ func (m *matchOptional) detectLeftRec(r Rule, rs ruleSet) bool {
 }
 
 func (m *matchOptional) print() string {
-	return m.rule.print() + "?"
+	return Print(m.rule) + "?"
 }
 
 // Maybe returns a rule that will allow it's rule to match, but
@@ -679,13 +846,14 @@ func Maybe(rule Rule) Rule {
 }
 
 type matchCheck struct {
+	basicRule
 	rule Rule
 }
 
 func (m *matchCheck) match(s *state) result {
 	defer s.restore(s.mark())
 
-	return s.check(m, m.rule.match(s))
+	return s.check(m, s.match(m.rule))
 }
 
 func (m *matchCheck) detectLeftRec(r Rule, rs ruleSet) bool {
@@ -697,7 +865,7 @@ func (m *matchCheck) detectLeftRec(r Rule, rs ruleSet) bool {
 }
 
 func (m *matchCheck) print() string {
-	return "&" + m.rule.print()
+	return "&" + Print(m.rule)
 }
 
 // Check returns a rule that will attempt to match it's given rule
@@ -711,6 +879,7 @@ func Check(rule Rule) Rule {
 }
 
 type matchNot struct {
+	basicRule
 	rule Rule
 }
 
@@ -721,7 +890,7 @@ func (m *matchNot) match(s *state) result {
 		return result{}
 	}
 
-	res := m.rule.match(s)
+	res := s.match(m.rule)
 	res.matched = !res.matched
 
 	return s.check(m, res)
@@ -736,7 +905,7 @@ func (m *matchNot) detectLeftRec(r Rule, rs ruleSet) bool {
 }
 
 func (m *matchNot) print() string {
-	return "!" + m.rule.print()
+	return "!" + Print(m.rule)
 }
 
 // Not returns a rule that will attempt to match it's given rule.
@@ -748,7 +917,7 @@ func (m *matchNot) print() string {
 // The value of the match is the value of the sub-rule.
 func Not(rule Rule) Rule {
 	if ms, ok := rule.(*matchString1); ok {
-		return &matchNotByte{ms.b}
+		return &matchNotByte{b: ms.b}
 	}
 	return &matchNot{rule: rule}
 }
@@ -774,6 +943,7 @@ type Ref interface {
 }
 
 type matchRef struct {
+	basicRule
 	name    string
 	rule    Rule
 	leftRec bool
@@ -812,6 +982,17 @@ func (r *matchRef) LeftRecursive() bool {
 }
 
 func (m *matchRef) match(s *state) result {
+	if m.rule == nil {
+		panic(fmt.Sprintf("unset ref detected: %s", m.name))
+	}
+
+	cur := s.curRef
+	defer func() {
+		s.curRef = cur
+	}()
+
+	s.curRef = m
+
 	// The memoization code was ported from
 	// https://github.com/we-like-parsers/pegen_experiments/blob/master/story7/memo.py
 
@@ -842,7 +1023,7 @@ func (m *matchRef) match(s *state) result {
 		for {
 			s.restore(pos)
 
-			res := m.rule.match(s)
+			res := s.match(m.rule)
 			endPos := s.mark()
 
 			if endPos <= lastPos {
@@ -863,7 +1044,8 @@ func (m *matchRef) match(s *state) result {
 			s.restore(res.endPos)
 			return res.result
 		}
-		res := m.rule.match(s)
+
+		res := s.match(m.rule)
 		endPos := s.mark()
 
 		memo[m] = &memoResult{result: res, endPos: endPos}
@@ -893,7 +1075,17 @@ func (m *matchRef) print() string {
 //
 // The value of the match is the value of the sub-rule.
 func R(name string) Ref {
-	return &matchRef{name: name}
+	return &matchRef{
+		basicRule: basicRule{
+			name: name,
+		},
+	}
+}
+
+func SetRef(name string, rule Rule) Ref {
+	r := R(name)
+	r.Set(rule)
+	return r
 }
 
 // Memo creates a rule that perform memoization as part of matching. Memoization is used
@@ -973,6 +1165,7 @@ func (m valMap) set(name string, val interface{}) bool {
 }
 
 type matchAction struct {
+	basicRule
 	rule Rule
 	fn   func(Values) interface{}
 }
@@ -980,13 +1173,15 @@ type matchAction struct {
 func (m *matchAction) match(s *state) result {
 	pos := s.mark()
 
-	res := m.rule.match(s)
+	res := s.match(m.rule)
 	if res.matched {
 		res.value = m.fn(s.values)
 
 		if sp, ok := res.value.(SetPositioner); ok {
 			sp.SetPosition(pos, s.mark())
 		}
+	} else {
+		s.restore(pos)
 	}
 
 	return s.check(m, res)
@@ -1001,7 +1196,7 @@ func (m *matchAction) detectLeftRec(r Rule, rs ruleSet) bool {
 }
 
 func (m *matchAction) print() string {
-	return m.rule.print()
+	return Print(m.rule)
 }
 
 // Action returns a rule that when it's given rule is matched, the given
@@ -1015,14 +1210,19 @@ func Action(r Rule, fn func(Values) interface{}) Rule {
 }
 
 type matchApply struct {
+	basicRule
 	rule Rule
 	typ  reflect.Type
 }
 
 func (m *matchApply) match(s *state) result {
-	res := m.rule.match(s)
+	pos := s.mark()
+
+	res := s.match(m.rule)
 	if res.matched {
 		res.value = m.expand(s)
+	} else {
+		s.restore(pos)
 	}
 
 	return res
@@ -1062,7 +1262,7 @@ func (m *matchApply) detectLeftRec(r Rule, rs ruleSet) bool {
 }
 
 func (m *matchApply) print() string {
-	return m.rule.print()
+	return Print(m.rule)
 }
 
 // Apply returns a rule that when it's given rule matches, it will
@@ -1074,9 +1274,10 @@ func (m *matchApply) print() string {
 // for values.
 //
 // For example, given:
-// type Node struct {
-//    Age int `ast:"age"`
-// }
+//
+//	type Node struct {
+//	   Age int `ast:"age"`
+//	}
 //
 // Apply(Named("age", numberRule), Node{})
 //
@@ -1103,6 +1304,7 @@ func Apply(rule Rule, v interface{}) Rule {
 }
 
 type matchScope struct {
+	basicRule
 	rule Rule
 }
 
@@ -1116,7 +1318,7 @@ func (m *matchScope) match(s *state) result {
 	v := cvPool.Get().(*compactedValues)
 	s.values = v
 
-	return s.check(m, m.rule.match(s))
+	return s.check(m, s.match(m.rule))
 }
 
 func (m *matchScope) detectLeftRec(r Rule, rs ruleSet) bool {
@@ -1128,7 +1330,7 @@ func (m *matchScope) detectLeftRec(r Rule, rs ruleSet) bool {
 }
 
 func (m *matchScope) print() string {
-	return m.rule.print()
+	return Print(m.rule)
 }
 
 // Scope introduces a new rule scope. This is generally not needed as
@@ -1140,12 +1342,13 @@ func Scope(rule Rule) Rule {
 }
 
 type matchNamed struct {
+	basicRule
 	name string
 	rule Rule
 }
 
 func (m *matchNamed) match(s *state) result {
-	res := m.rule.match(s)
+	res := s.match(m.rule)
 	if res.matched {
 		if s.p.debug {
 			fmt.Printf("N (%p) %s => %#v\n", s.values, m.name, res.value)
@@ -1155,6 +1358,8 @@ func (m *matchNamed) match(s *state) result {
 			for _, ent := range s.values.(*compactedValues).entries {
 				vm.set(ent.name, ent.val)
 			}
+
+			vm.set(m.name, res.value)
 
 			s.values = vm
 		}
@@ -1172,7 +1377,7 @@ func (m *matchNamed) detectLeftRec(r Rule, rs ruleSet) bool {
 }
 
 func (m *matchNamed) print() string {
-	return fmt.Sprintf("%s:%s", m.rule.print(), m.name)
+	return fmt.Sprintf("%s:%s", Print(m.rule), m.name)
 }
 
 // Named will assign the value of the given rule to the current rule scope
@@ -1184,6 +1389,7 @@ func Named(name string, rule Rule) Rule {
 }
 
 type matchTransform struct {
+	basicRule
 	rule Rule
 	fn   func(str string) interface{}
 }
@@ -1191,13 +1397,15 @@ type matchTransform struct {
 func (m *matchTransform) match(s *state) result {
 	pos := s.mark()
 
-	res := m.rule.match(s)
+	res := s.match(m.rule)
 	if res.matched {
 		res.value = m.fn(s.input[pos:s.mark()])
 
 		if sp, ok := res.value.(SetPositioner); ok {
 			sp.SetPosition(pos, s.mark())
 		}
+	} else {
+		s.restore(pos)
 	}
 
 	return s.check(m, res)
@@ -1212,7 +1420,7 @@ func (m *matchTransform) detectLeftRec(r Rule, rs ruleSet) bool {
 }
 
 func (m *matchTransform) print() string {
-	return m.rule.print()
+	return Print(m.rule)
 }
 
 // Transform returns a Rule that invokes it's given rule and if it matches
@@ -1225,15 +1433,18 @@ func Transform(r Rule, fn func(string) interface{}) Rule {
 }
 
 type matchCapture struct {
+	basicRule
 	rule Rule
 }
 
 func (m *matchCapture) match(s *state) result {
 	pos := s.mark()
 
-	res := m.rule.match(s)
+	res := s.match(m.rule)
 	if res.matched {
 		res.value = s.input[pos:s.mark()]
+	} else {
+		s.restore(pos)
 	}
 
 	return s.check(m, res)
@@ -1248,7 +1459,7 @@ func (m *matchCapture) detectLeftRec(r Rule, rs ruleSet) bool {
 }
 
 func (m *matchCapture) print() string {
-	return fmt.Sprintf("< %s >", m.rule.print())
+	return fmt.Sprintf("< %s >", Print(m.rule))
 }
 
 // Capture returns a Rule that attempts to match it's given rule. If it
@@ -1263,6 +1474,7 @@ func Capture(r Rule) Rule {
 }
 
 type matchCheckAction struct {
+	basicRule
 	rule Rule
 	fn   func(vals Values) bool
 }
@@ -1302,6 +1514,7 @@ func (m *matchCheckAction) print() string {
 }
 
 type matchEOS struct {
+	basicRule
 }
 
 func (m *matchEOS) match(s *state) result {
@@ -1373,7 +1586,14 @@ func (l *labels) Set(name string, rule Rule) Ref {
 	return ref
 }
 
-var ErrInputNotConsumed = errors.New("full input not consume")
+type ErrInputNotConsumed struct {
+	MaxPos  int
+	MaxRule Rule
+}
+
+func (*ErrInputNotConsumed) Error() string {
+	return "full input not consume"
+}
 
 type memoResult struct {
 	result
@@ -1388,12 +1608,47 @@ type state struct {
 	pos       int
 	memos     map[int]map[Rule]*memoResult
 	values    Values
-	maxPos    int
 
+	curRef  Ref
+	maxPos  int
+	maxRule Rule
+
+	debug     bool
+	refStack  []string
 	check     func(r Rule, res result) result
 	good      func(r Rule)
 	goodRange func(r Rule, sz int)
 	bad       func(r Rule)
+
+	match func(r Rule) result
+}
+
+func (s *state) matchFast(r Rule) result {
+	return r.match(s)
+}
+
+func (s *state) matchDebug(r Rule) result {
+	n := r.Name()
+	if n == "" {
+		return r.match(s)
+	}
+
+	rs := s.refStack
+	s.refStack = append(s.refStack, n)
+
+	fmt.Printf("R -- %s\n", strings.Join(s.refStack, ", "))
+
+	res := r.match(s)
+
+	s.refStack = rs
+
+	if res.matched {
+		fmt.Printf("  + G -- %s\n", strings.Join(s.refStack, ", "))
+	} else {
+		fmt.Printf("  - B -- %s\n", strings.Join(s.refStack, ", "))
+	}
+
+	return res
 }
 
 func (s *state) cur() string {
@@ -1408,11 +1663,12 @@ func (s *state) curRune() string {
 	}
 }
 
-func (s *state) advance(l int) {
+func (s *state) advance(l int, r Rule) {
 	s.pos += l
 
 	if s.pos > s.maxPos {
 		s.maxPos = s.pos
+		s.maxRule = s.curRef
 	}
 }
 
@@ -1425,19 +1681,19 @@ func (s *state) restore(p int) {
 }
 
 func (s *state) goodRangeDebug(r Rule, sz int) {
-	fmt.Printf("G @ %d-%d (%q) => %s\n", s.pos, s.pos+sz, s.input[s.pos:s.pos+sz], r.print())
+	fmt.Printf("G @ %d-%d (%q) => %s\n", s.pos, s.pos+sz, s.input[s.pos:s.pos+sz], Print(r))
 }
 
 func goodRangeId(r Rule, sz int) {}
 
 func (s *state) goodDebug(r Rule) {
-	fmt.Printf("G @ %d (%q) => %s\n", s.mark(), s.curRune(), r.print())
+	fmt.Printf("G @ %d (%q) => %s\n", s.mark(), s.curRune(), Print(r))
 }
 
 func goodId(r Rule) {}
 
 func (s *state) badDebug(r Rule) {
-	fmt.Printf("B @ %d (%q) => %s\n", s.mark(), s.curRune(), r.print())
+	fmt.Printf("B @ %d (%q) => %s\n", s.mark(), s.curRune(), Print(r))
 }
 
 func badId(r Rule) {}
@@ -1502,6 +1758,7 @@ func (p *Parser) parse(r Rule, input string) (*state, result) {
 		input:     input,
 		inputSize: len(input),
 		values:    cvPool.Get().(Values),
+		debug:     p.debug,
 	}
 
 	if p.debug {
@@ -1509,16 +1766,18 @@ func (p *Parser) parse(r Rule, input string) (*state, result) {
 		s.good = s.goodDebug
 		s.goodRange = s.goodRangeDebug
 		s.bad = s.badDebug
+		s.match = s.matchDebug
 	} else {
 		s.check = checkId
 		s.good = goodId
 		s.goodRange = goodRangeId
 		s.bad = badId
+		s.match = s.matchFast
 	}
 
 	defer returnValues(s.values)
 
-	return s, r.match(s)
+	return s, s.match(r)
 }
 
 // Parse attempts to match the given rule against the input string. If
@@ -1532,13 +1791,27 @@ func (p *Parser) Parse(r Rule, input string) (val interface{}, matched bool, err
 
 	if !p.partial {
 		if s.pos != s.inputSize {
-			return res.value, false, ErrInputNotConsumed
+			return res.value, false, &ErrInputNotConsumed{
+				MaxPos:  s.maxPos,
+				MaxRule: s.maxRule,
+			}
 		}
 	}
 
 	return res.value, true, nil
 }
 
+// Print outputs either the rules name (if it has one) or a description
+// of it's operations.
 func Print(n Rule) string {
+	if n.Name() != "" {
+		return n.Name()
+	}
+
+	return n.print()
+}
+
+// Repr outputs a description of the rules operations.
+func Repr(n Rule) string {
 	return n.print()
 }

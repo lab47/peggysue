@@ -134,7 +134,7 @@ func TestParse(t *testing.T) {
 		r.True(ok)
 
 		_, ok, err = p.Parse(r2, "blah")
-		r.ErrorIs(err, ErrInputNotConsumed)
+		r.Error(err)
 		r.False(ok)
 
 		_, ok, err = p.Parse(r2, "foofoofoo")
@@ -174,7 +174,7 @@ func TestParse(t *testing.T) {
 		r.True(ok)
 
 		_, ok, err = p.Parse(r2, "blah")
-		r.ErrorIs(err, ErrInputNotConsumed)
+		r.Error(err)
 		r.False(ok)
 	})
 

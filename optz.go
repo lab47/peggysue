@@ -7,6 +7,7 @@ import (
 )
 
 type matchScan struct {
+	basicRule
 	fn func(str string) int
 }
 
@@ -22,7 +23,7 @@ func (m *matchScan) match(s *state) result {
 	}
 
 	s.goodRange(m, loc)
-	s.advance(loc)
+	s.advance(loc, m)
 	return result{matched: true}
 }
 
@@ -50,6 +51,7 @@ func Scan(fn func(str string) int) Rule {
 // matchString1 is a specialized form of matchString used to match
 // just a single byte.
 type matchString1 struct {
+	basicRule
 	b byte
 }
 
@@ -60,7 +62,7 @@ func (m *matchString1) match(s *state) result {
 
 	if s.input[s.pos] == m.b {
 		s.good(m)
-		s.advance(1)
+		s.advance(1, m)
 		return result{matched: true}
 	}
 
@@ -79,6 +81,7 @@ func (m *matchString1) print() string {
 // matchString2 is a specialized form of matchString used to match
 // the next 2 bytes.
 type matchString2 struct {
+	basicRule
 	a, b byte
 }
 
@@ -98,7 +101,7 @@ func (m *matchString2) match(s *state) result {
 	}
 
 	s.good(m)
-	s.advance(2)
+	s.advance(2, m)
 	return result{matched: true}
 }
 
@@ -111,6 +114,7 @@ func (m *matchString2) print() string {
 }
 
 type matchPrefixTable struct {
+	basicRule
 	rules map[byte]Rule
 }
 
@@ -126,7 +130,7 @@ func (m *matchPrefixTable) match(s *state) result {
 		return result{}
 	}
 
-	return r.match(s)
+	return s.match(r)
 }
 
 func (m *matchPrefixTable) detectLeftRec(r Rule, rs ruleSet) bool {
@@ -190,17 +194,17 @@ func PrefixTable(entries ...interface{}) Rule {
 		matches[b] = r
 	}
 
-	return &matchPrefixTable{matches}
+	return &matchPrefixTable{rules: matches}
 }
 
 // matchEither is an automatic optimization rule. It is used when Or() is passed 2 rules.
 type matchEither struct {
+	basicRule
 	a Rule
 	b Rule
 }
 
 func (m *matchEither) match(s *state) result {
-
 	save := s.mark()
 
 	res := m.a.match(s)
@@ -217,6 +221,7 @@ func (m *matchEither) match(s *state) result {
 		return res
 	}
 
+	s.restore(save)
 	s.bad(m)
 	return result{}
 }
@@ -251,6 +256,7 @@ func (m *matchEither) print() string {
 // matchNotByte is an automatic optimization rule. It's used when detected Not(S("x")), where
 // x is anything.
 type matchNotByte struct {
+	basicRule
 	b byte
 }
 
@@ -272,20 +278,25 @@ func (m *matchNotByte) print() string {
 
 // matchBoth is an automatic optimization rule. It's used when Seq() is passed 2 rules.
 type matchBoth struct {
+	basicRule
 	a Rule
 	b Rule
 }
 
 func (m *matchBoth) match(s *state) result {
+	mark := s.mark()
+
 	res := m.a.match(s)
 	if !res.matched {
+		s.restore(mark)
 		s.bad(m)
 		return result{}
 	}
 
 	res2 := m.b.match(s)
 	if !res2.matched {
-		s.good(m)
+		s.restore(mark)
+		s.bad(m)
 		return result{}
 	}
 
@@ -298,11 +309,17 @@ func (m *matchBoth) match(s *state) result {
 }
 
 func (m *matchBoth) detectLeftRec(r Rule, rs ruleSet) bool {
-	if !rs.Add(m.a) {
-		return false
+	for _, o := range []Rule{m.a, m.b} {
+		if !rs.Add(o) {
+			return false
+		}
+
+		if o == r || o.detectLeftRec(r, rs) {
+			return true
+		}
 	}
 
-	return m.a == r || m.a.detectLeftRec(r, rs)
+	return false
 }
 
 func (m *matchBoth) print() string {
@@ -316,21 +333,26 @@ func (m *matchBoth) print() string {
 
 // matchBoth is an automatic optimization rule. It's used when Seq() is passed 3 rules.
 type matchThree struct {
+	basicRule
 	a Rule
 	b Rule
 	c Rule
 }
 
 func (m *matchThree) match(s *state) result {
+	pos := s.mark()
+
 	res := m.a.match(s)
 	if !res.matched {
+		s.restore(pos)
 		s.bad(m)
 		return result{}
 	}
 
 	res2 := m.b.match(s)
 	if !res2.matched {
-		s.good(m)
+		s.restore(pos)
+		s.bad(m)
 		return result{}
 	}
 
@@ -340,7 +362,8 @@ func (m *matchThree) match(s *state) result {
 
 	res3 := m.c.match(s)
 	if !res3.matched {
-		s.good(m)
+		s.restore(pos)
+		s.bad(m)
 		return result{}
 	}
 
@@ -353,11 +376,17 @@ func (m *matchThree) match(s *state) result {
 }
 
 func (m *matchThree) detectLeftRec(r Rule, rs ruleSet) bool {
-	if !rs.Add(m.a) {
-		return false
+	for _, o := range []Rule{m.a, m.b, m.c} {
+		if !rs.Add(o) {
+			return false
+		}
+
+		if o == r || o.detectLeftRec(r, rs) {
+			return true
+		}
 	}
 
-	return m.a == r || m.a.detectLeftRec(r, rs)
+	return false
 }
 
 func (m *matchThree) print() string {
