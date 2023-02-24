@@ -391,12 +391,15 @@ func TestParse(t *testing.T) {
 
 		r.Equal(0, n.i.posStart)
 		r.Equal(1, n.i.posEnd)
+		r.Equal(1, n.i.line)
 
 		r.Equal(2, n.j.posStart)
 		r.Equal(3, n.j.posEnd)
+		r.Equal(1, n.i.line)
 
 		r.Equal(0, n.posStart)
 		r.Equal(3, n.posEnd)
+		r.Equal(1, n.i.line)
 	})
 
 	t.Run("properly memoizes results", func(t *testing.T) {
@@ -531,11 +534,13 @@ type testIntNode struct {
 
 	posStart int
 	posEnd   int
+	line     int
 }
 
-func (t *testIntNode) SetPosition(start, end int) {
+func (t *testIntNode) SetPosition(start, end, line int) {
 	t.posStart = start
 	t.posEnd = end
+	t.line = line
 }
 
 type testPlusNode struct {
@@ -543,11 +548,13 @@ type testPlusNode struct {
 
 	posStart int
 	posEnd   int
+	line     int
 }
 
-func (t *testPlusNode) SetPosition(start, end int) {
+func (t *testPlusNode) SetPosition(start, end, line int) {
 	t.posStart = start
 	t.posEnd = end
+	t.line = line
 }
 
 func BenchmarkParse(b *testing.B) {

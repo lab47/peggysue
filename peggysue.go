@@ -2,6 +2,7 @@ package peggysue
 
 import (
 	"fmt"
+	"io/ioutil"
 	"reflect"
 	"regexp"
 	"strconv"
@@ -17,7 +18,7 @@ import (
 // will call it with the information about the position of the value in the
 // inputs tream.
 type SetPositioner interface {
-	SetPosition(start, end int)
+	SetPosition(start, end, line int, filename string)
 }
 
 type ruleSet map[Rule]struct{}
@@ -1178,7 +1179,7 @@ func (m *matchAction) match(s *state) result {
 		res.value = m.fn(s.values)
 
 		if sp, ok := res.value.(SetPositioner); ok {
-			sp.SetPosition(pos, s.mark())
+			sp.SetPosition(pos, s.mark(), s.line(pos), s.filename)
 		}
 	} else {
 		s.restore(pos)
@@ -1402,7 +1403,7 @@ func (m *matchTransform) match(s *state) result {
 		res.value = m.fn(s.input[pos:s.mark()])
 
 		if sp, ok := res.value.(SetPositioner); ok {
-			sp.SetPosition(pos, s.mark())
+			sp.SetPosition(pos, s.mark(), s.line(pos), s.filename)
 		}
 	} else {
 		s.restore(pos)
@@ -1609,6 +1610,9 @@ type state struct {
 	memos     map[int]map[Rule]*memoResult
 	values    Values
 
+	filename string
+	linePos  []int
+
 	curRef  Ref
 	maxPos  int
 	maxRule Rule
@@ -1752,13 +1756,37 @@ func New(opts ...Option) *Parser {
 	return p
 }
 
-func (p *Parser) parse(r Rule, input string) (*state, result) {
+func computeLines(input string) []int {
+	var out []int
+
+	for i, b := range input {
+		if b == '\n' {
+			out = append(out, i)
+		}
+	}
+
+	return out
+}
+
+func (s *state) line(bp int) int {
+	for i, lp := range s.linePos {
+		if bp <= lp {
+			return i + 1
+		}
+	}
+
+	return len(s.linePos) + 1
+}
+
+func (p *Parser) parse(r Rule, input, filename string) (*state, result) {
 	s := &state{
 		p:         p,
 		input:     input,
 		inputSize: len(input),
 		values:    cvPool.Get().(Values),
 		debug:     p.debug,
+		linePos:   computeLines(input),
+		filename:  filename,
 	}
 
 	if p.debug {
@@ -1784,7 +1812,7 @@ func (p *Parser) parse(r Rule, input string) (*state, result) {
 // the rule matches, the value of the rule is returned. If the rule matches
 // a portion of input, the ErrInputNotConsumed error is returned.
 func (p *Parser) Parse(r Rule, input string) (val interface{}, matched bool, err error) {
-	s, res := p.parse(r, input)
+	s, res := p.parse(r, input, "")
 	if !res.matched {
 		return nil, false, nil
 	}
@@ -1799,6 +1827,31 @@ func (p *Parser) Parse(r Rule, input string) (val interface{}, matched bool, err
 	}
 
 	return res.value, true, nil
+}
+
+// ParseFile reads the data from the file at the path and parses it using the given Rule
+func (p *Parser) ParseFile(r Rule, path string) (val interface{}, matched bool, err error) {
+	data, err := ioutil.ReadFile(path)
+	if err != nil {
+		return nil, false, err
+	}
+
+	s, res := p.parse(r, string(data), path)
+	if !res.matched {
+		return nil, false, nil
+	}
+
+	if !p.partial {
+		if s.pos != s.inputSize {
+			return res.value, false, &ErrInputNotConsumed{
+				MaxPos:  s.maxPos,
+				MaxRule: s.maxRule,
+			}
+		}
+	}
+
+	return res.value, true, nil
+
 }
 
 // Print outputs either the rules name (if it has one) or a description
