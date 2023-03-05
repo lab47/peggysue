@@ -113,7 +113,9 @@ func digToByte(c byte) byte {
 }
 
 func asBigInt(str string, base int64) (*big.Int, error) {
-	var x int64
+	var x, tmp big.Int
+
+	baseInt := big.NewInt(base)
 
 	for _, c := range []byte(str) {
 		var d byte
@@ -131,11 +133,13 @@ func asBigInt(str string, base int64) (*big.Int, error) {
 			return nil, ErrRangeError
 		}
 
-		x *= base
-		x += int64(d)
+		x.Mul(&x, baseInt)
+
+		tmp.SetInt64(int64(d))
+		x.Add(&x, &tmp)
 	}
 
-	return big.NewInt(x), nil
+	return &x, nil
 }
 
 // AsInt returns the number value as a Go int.
