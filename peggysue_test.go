@@ -268,7 +268,7 @@ func TestParse(t *testing.T) {
 
 		r.False(f1.LeftRecursive())
 
-		st, res := p.parse(r1, "1-")
+		st, res := p.parse(r1, "1-", "")
 		r.True(res.matched)
 
 		r.NotNil(st.memos[0][f1])
@@ -290,7 +290,7 @@ func TestParse(t *testing.T) {
 
 		r.False(f1.LeftRecursive())
 
-		st, res := p.parse(r1, "1-")
+		st, res := p.parse(r1, "1-", "")
 		r.True(res.matched)
 
 		r.NotNil(st.memos[0][f1])
@@ -428,7 +428,7 @@ func TestParse(t *testing.T) {
 				}
 			})
 
-		st, res := p.parse(calc, "3+4")
+		st, res := p.parse(calc, "3+4", "")
 		r.True(res.matched)
 
 		r.Equal(1, st.memos[0][i].used)
@@ -450,7 +450,7 @@ func TestParse(t *testing.T) {
 			Seq(i, S("*"), S("2")),
 		)
 
-		st, res := p.parse(calc, "3*4")
+		st, res := p.parse(calc, "3*4", "")
 		r.False(res.matched)
 
 		r.Equal(2, st.maxPos)
@@ -537,7 +537,7 @@ type testIntNode struct {
 	line     int
 }
 
-func (t *testIntNode) SetPosition(start, end, line int) {
+func (t *testIntNode) SetPosition(start, end, line int, filename string) {
 	t.posStart = start
 	t.posEnd = end
 	t.line = line
@@ -551,7 +551,7 @@ type testPlusNode struct {
 	line     int
 }
 
-func (t *testPlusNode) SetPosition(start, end, line int) {
+func (t *testPlusNode) SetPosition(start, end, line int, filename string) {
 	t.posStart = start
 	t.posEnd = end
 	t.line = line
