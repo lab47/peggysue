@@ -598,6 +598,52 @@ func Seq(rules ...Rule) Rule {
 	}
 }
 
+type matchCount struct {
+	basicRule
+	rule Rule
+	num  int
+}
+
+func (m *matchCount) match(s *state) result {
+	mark := s.mark()
+
+	var last result
+
+	for i := 0; i < m.num; i++ {
+		res := s.match(m.rule)
+		if !res.matched {
+			s.restore(mark)
+			return result{}
+		}
+		last = res
+	}
+
+	s.good(m)
+	return result{value: last.value, matched: true}
+}
+
+func (m *matchCount) detectLeftRec(r Rule, rs ruleSet) bool {
+	if !rs.Add(m.rule) {
+		return false
+	}
+
+	return m.rule == r || m.rule.detectLeftRec(r, rs)
+}
+
+func (m *matchCount) print() string {
+	return addParens(m.rule) + "*"
+}
+
+// Count returns a rule that will attempt to match it's given rule
+// exactly +num+ times. It corresponds to the count rule ("e{2}") in most
+// PEGs.
+//
+// The value of the match is the value of the last iteration of applying
+// the sub rule.
+func Count(rule Rule, num int) Rule {
+	return &matchCount{rule: rule, num: num}
+}
+
 type matchZeroOrMore struct {
 	basicRule
 	rule Rule
