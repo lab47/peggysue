@@ -1549,8 +1549,7 @@ func Capture(r Rule) Rule {
 
 type matchCheckAction struct {
 	basicRule
-	rule Rule
-	fn   func(vals Values) bool
+	fn func(vals Values) bool
 }
 
 func (m *matchCheckAction) match(s *state) result {
@@ -1566,11 +1565,7 @@ func (m *matchCheckAction) match(s *state) result {
 }
 
 func (m *matchCheckAction) detectLeftRec(r Rule, rs ruleSet) bool {
-	if !rs.Add(m.rule) {
-		return false
-	}
-
-	return m.rule == r || m.rule.detectLeftRec(r, rs)
+	return false
 }
 
 // CheckAction returns a rule that when a match is attempted, calls the given
