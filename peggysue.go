@@ -1113,6 +1113,7 @@ type cvEntry struct {
 }
 
 type compactedValues struct {
+	s       *state
 	used    int
 	entries [5]cvEntry
 }
@@ -1121,6 +1122,13 @@ func (v *compactedValues) set(name string, val interface{}) bool {
 	idx := v.used
 	if idx >= len(v.entries) {
 		return false
+	}
+
+	for i := 0; i < v.used; i++ {
+		if v.entries[i].name == name {
+			v.entries[i].val = val
+			return true
+		}
 	}
 
 	v.used = idx + 1
@@ -1136,6 +1144,10 @@ func (v *compactedValues) Get(name string) interface{} {
 		if v.entries[i].name == name {
 			return v.entries[i].val
 		}
+	}
+
+	if val, ok := v.s.args[name]; ok {
+		return val
 	}
 
 	return nil
@@ -1154,15 +1166,72 @@ func returnValues(v Values) {
 	}
 }
 
-type valMap map[string]interface{}
-
-func (m valMap) Get(name string) interface{} {
-	return m[name]
+type valMap struct {
+	s *state
+	m map[string]interface{}
 }
 
-func (m valMap) set(name string, val interface{}) bool {
-	m[name] = val
+func (m *valMap) Get(name string) interface{} {
+	if v, ok := m.m[name]; ok {
+		return v
+	}
+
+	return m.s.args[name]
+}
+
+func (m *valMap) set(name string, val interface{}) bool {
+	m.m[name] = val
 	return true
+}
+
+type matchCall struct {
+	basicRule
+	rule Rule
+	fn   func(Values) map[string]interface{}
+}
+
+func (m *matchCall) match(s *state) result {
+	pos := s.mark()
+
+	// We do this before swapping out the current args
+	// so that the function can access them if need be.
+	newArgs := m.fn(s.values)
+
+	curArgs := s.args
+	defer func() {
+		s.args = curArgs
+	}()
+
+	s.args = newArgs
+
+	res := s.match(m.rule)
+	if !res.matched {
+		s.restore(pos)
+	}
+
+	return s.check(m, res)
+}
+
+func (m *matchCall) detectLeftRec(r Rule, rs ruleSet) bool {
+	if !rs.Add(m.rule) {
+		return false
+	}
+
+	return m.rule == r || m.rule.detectLeftRec(r, rs)
+}
+
+func (m *matchCall) print() string {
+	return Print(m.rule)
+}
+
+// Call returns a rule that when invoke, calls the given function which returns
+// a set of values which are provided to the given rule as it's arguments. Arguments
+// are available like Named'd values in Actions. This provides an interface for
+// propegating values between Actions, allow them to parse based on some state.
+//
+// The value of the match is the value of the given rule.
+func Call(r Rule, fn func(Values) map[string]interface{}) Rule {
+	return &matchCall{rule: r, fn: fn}
 }
 
 type matchAction struct {
@@ -1317,6 +1386,7 @@ func (m *matchScope) match(s *state) result {
 	}()
 
 	v := cvPool.Get().(*compactedValues)
+	v.s = s
 	s.values = v
 
 	return s.check(m, s.match(m.rule))
@@ -1355,14 +1425,16 @@ func (m *matchNamed) match(s *state) result {
 			fmt.Printf("N (%p) %s => %#v\n", s.values, m.name, res.value)
 		}
 		if !s.values.set(m.name, res.value) {
-			vm := make(valMap)
+			var vm valMap
+			vm.s = s
+			vm.m = make(map[string]interface{})
 			for _, ent := range s.values.(*compactedValues).entries {
 				vm.set(ent.name, ent.val)
 			}
 
 			vm.set(m.name, res.value)
 
-			s.values = vm
+			s.values = &vm
 		}
 	}
 
@@ -1609,6 +1681,7 @@ type state struct {
 	pos       int
 	memos     map[int]map[Rule]*memoResult
 	values    Values
+	args      map[string]interface{}
 
 	filename string
 	linePos  []int
