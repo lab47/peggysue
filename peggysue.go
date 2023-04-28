@@ -3,6 +3,7 @@ package peggysue
 import (
 	"fmt"
 	"io/ioutil"
+	"os"
 	"reflect"
 	"regexp"
 	"strconv"
@@ -1610,6 +1611,40 @@ func EOS() Rule {
 	return &matchEOS{}
 }
 
+type matchDebug struct {
+	basicRule
+}
+
+func (m *matchDebug) match(s *state) result {
+	fmt.Fprintf(os.Stderr, "cur: %q, rune: %q\n", s.showPosition(), s.curRune())
+	switch sv := s.values.(type) {
+	case *compactedValues:
+		for _, e := range sv.entries {
+			if e.name == "" {
+				continue
+			}
+			fmt.Fprintf(os.Stderr, "> %s = %#v\n", e.name, e.val)
+		}
+	}
+	return result{matched: true}
+}
+
+func (m *matchDebug) detectLeftRec(Rule, ruleSet) bool {
+	return false
+}
+
+func (m *matchDebug) print() string {
+	return "Debug"
+}
+
+// EOS produces a rule that only matches when the input stream
+// has been exhausted.
+//
+// The value of the match is nil.
+func Debug() Rule {
+	return &matchDebug{}
+}
+
 // That's all the rules!
 
 // Labels provides a simple database for named refs. This is used to cleanup rule
@@ -1730,6 +1765,10 @@ func (s *state) matchDebug(r Rule) result {
 
 func (s *state) cur() string {
 	return s.input[s.pos:]
+}
+
+func (s *state) showPosition() string {
+	return s.input[:s.pos] + "•" + s.input[s.pos:]
 }
 
 func (s *state) curRune() string {
