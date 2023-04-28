@@ -1670,7 +1670,7 @@ func (s *state) curRune() string {
 func (s *state) advance(l int, r Rule) {
 	s.pos += l
 
-	if s.pos > s.maxPos {
+	if s.maxRule == nil || s.pos > s.maxPos {
 		s.maxPos = s.pos
 		s.maxRule = s.curRef
 	}
