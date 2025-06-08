@@ -78,16 +78,16 @@ func RegexpToRule(node regexp.Node) Rule {
 			return Not(Any())
 		}
 
-		// Optimize character classes by collecting single characters
-		// and using Set() for them, which is faster than Or()
+		// Optimize character classes using PrefixTable for better performance
 		var singleChars []rune
 		var rules []Rule
+		var prefixEntries []any
 
 		for _, elem := range n.Elements {
 			switch e := elem.(type) {
 			case regexp.CharRange:
 				if e.Start == e.End {
-					// Single character - add to set
+					// Single character - candidate for PrefixTable
 					singleChars = append(singleChars, e.Start)
 				} else {
 					// Range - keep as separate rule
@@ -103,15 +103,51 @@ func RegexpToRule(node regexp.Node) Rule {
 		// Build the final rule
 		var classRule Rule
 
-		// Add Set rule for single characters if any
-		if len(singleChars) > 0 {
-			rules = append([]Rule{Set(singleChars...)}, rules...)
-		}
+		// Use PrefixTable optimization if we have single characters
+		// This is more efficient than Set() for character sets with ASCII chars
+		if len(singleChars) >= 3 {
+			// Build PrefixTable entries for single characters
+			for _, ch := range singleChars {
+				if ch <= 127 { // ASCII only for PrefixTable
+					prefixEntries = append(prefixEntries, byte(ch), Byte(byte(ch)))
+				} else {
+					// Non-ASCII single chars fall back to rules
+					rules = append(rules, S(string(ch)))
+				}
+			}
 
-		if len(rules) == 1 {
-			classRule = rules[0]
+			if len(prefixEntries) > 0 {
+				if len(rules) == 0 {
+					// Pure PrefixTable case
+					classRule = PrefixTable(prefixEntries...)
+				} else {
+					// Mixed case: PrefixTable + other rules
+					prefixRule := PrefixTable(prefixEntries...)
+					rules = append([]Rule{prefixRule}, rules...)
+					classRule = Or(rules...)
+				}
+			} else {
+				// No ASCII chars, use Set fallback
+				if len(singleChars) > 0 {
+					rules = append([]Rule{Set(singleChars...)}, rules...)
+				}
+				if len(rules) == 1 {
+					classRule = rules[0]
+				} else {
+					classRule = Or(rules...)
+				}
+			}
 		} else {
-			classRule = Or(rules...)
+			// Use original Set() optimization for smaller sets or many ranges
+			if len(singleChars) > 0 {
+				rules = append([]Rule{Set(singleChars...)}, rules...)
+			}
+
+			if len(rules) == 1 {
+				classRule = rules[0]
+			} else {
+				classRule = Or(rules...)
+			}
 		}
 
 		if n.Negated {
@@ -314,4 +350,3 @@ func Regexp(pattern string) Rule {
 	// Wrap the rule in Capture to return the matched text
 	return Capture(RegexpToRule(ast))
 }
-

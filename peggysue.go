@@ -156,6 +156,15 @@ func S(str string) Rule {
 	}
 }
 
+// Byte returns a Rule that will match a single byte exactly.
+// This is more efficient than S() for single ASCII characters as it
+// avoids UTF-8 decoding overhead.
+//
+// The value of the match is nil.
+func Byte(b byte) Rule {
+	return &matchString1{b: b}
+}
+
 type matchRegexp struct {
 	basicRule
 	re  *regexp.Regexp
