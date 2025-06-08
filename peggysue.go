@@ -38,7 +38,7 @@ type Rule interface {
 
 type result struct {
 	matched bool
-	value   interface{}
+	value   any
 }
 
 func (rs ruleSet) Add(r Rule) bool {
@@ -278,12 +278,10 @@ func (m *matchCharSet) match(s *state) result {
 		rn, sz = utf8.DecodeRuneInString(s.cur())
 	}
 
-	for _, mr := range m.set {
-		if rn == mr {
-			s.good(m)
-			s.advance(sz, m)
-			return result{matched: true}
-		}
+	if slices.Contains(m.set, rn) {
+		s.good(m)
+		s.advance(sz, m)
+		return result{matched: true}
 	}
 
 	s.bad(m)
@@ -608,7 +606,7 @@ func (m *matchCount) match(s *state) result {
 
 	var last result
 
-	for i := 0; i < m.num; i++ {
+	for range m.num {
 		res := s.match(m.rule)
 		if !res.matched {
 			s.restore(mark)
@@ -755,18 +753,18 @@ type matchMany struct {
 	basicRule
 	min, max int
 	rule     Rule
-	fn       func([]interface{}) interface{}
+	fn       func([]any) any
 }
 
 var manyResultsPool = sync.Pool{
-	New: func() interface{} {
-		val := make([]interface{}, 0, 10)
+	New: func() any {
+		val := make([]any, 0, 10)
 		return &val
 	},
 }
 
 func (m *matchMany) match(s *state) result {
-	pv := manyResultsPool.Get().(*[]interface{})
+	pv := manyResultsPool.Get().(*[]any)
 	defer manyResultsPool.Put(pv)
 
 	results := (*pv)[:0]
@@ -796,7 +794,7 @@ func (m *matchMany) match(s *state) result {
 		return result{}
 	}
 
-	var val interface{}
+	var val any
 
 	if m.fn != nil {
 		val = m.fn(results)
@@ -839,11 +837,11 @@ func (m *matchMany) print() string {
 //
 // The value of the return value of `fn` or, if `fn` is nil, the slice
 // the sub-rule values.
-func Many(rule Rule, min, max int, fn func(values []interface{}) interface{}) Rule {
+func Many(rule Rule, min, max int, fn func(values []any) any) Rule {
 	return &matchMany{rule: rule, min: min, max: max, fn: fn}
 }
 
-func copyGroup(values []interface{}) interface{} {
+func copyGroup(values []any) any {
 	return slices.Clone(values)
 }
 
@@ -1148,14 +1146,14 @@ func Memo(rule Rule) Rule {
 // Values provides the same of rule values gathered. The names correspond
 // to Named rules that were observed in the current scope.
 type Values interface {
-	Get(name string) interface{}
+	Get(name string) any
 
-	set(name string, val interface{}) bool
+	set(name string, val any) bool
 }
 
 type cvEntry struct {
 	name string
-	val  interface{}
+	val  any
 }
 
 type compactedValues struct {
@@ -1164,13 +1162,13 @@ type compactedValues struct {
 	entries [5]cvEntry
 }
 
-func (v *compactedValues) set(name string, val interface{}) bool {
+func (v *compactedValues) set(name string, val any) bool {
 	idx := v.used
 	if idx >= len(v.entries) {
 		return false
 	}
 
-	for i := 0; i < v.used; i++ {
+	for i := range v.used {
 		if v.entries[i].name == name {
 			v.entries[i].val = val
 			return true
@@ -1185,8 +1183,8 @@ func (v *compactedValues) set(name string, val interface{}) bool {
 	return true
 }
 
-func (v *compactedValues) Get(name string) interface{} {
-	for i := 0; i < v.used; i++ {
+func (v *compactedValues) Get(name string) any {
+	for i := range v.used {
 		if v.entries[i].name == name {
 			return v.entries[i].val
 		}
@@ -1200,7 +1198,7 @@ func (v *compactedValues) Get(name string) interface{} {
 }
 
 var cvPool = sync.Pool{
-	New: func() interface{} {
+	New: func() any {
 		return &compactedValues{}
 	},
 }
@@ -1214,10 +1212,10 @@ func returnValues(v Values) {
 
 type valMap struct {
 	s *state
-	m map[string]interface{}
+	m map[string]any
 }
 
-func (m *valMap) Get(name string) interface{} {
+func (m *valMap) Get(name string) any {
 	if v, ok := m.m[name]; ok {
 		return v
 	}
@@ -1225,7 +1223,7 @@ func (m *valMap) Get(name string) interface{} {
 	return m.s.args[name]
 }
 
-func (m *valMap) set(name string, val interface{}) bool {
+func (m *valMap) set(name string, val any) bool {
 	m.m[name] = val
 	return true
 }
@@ -1233,7 +1231,7 @@ func (m *valMap) set(name string, val interface{}) bool {
 type matchCall struct {
 	basicRule
 	rule Rule
-	fn   func(Values) map[string]interface{}
+	fn   func(Values) map[string]any
 }
 
 func (m *matchCall) match(s *state) result {
@@ -1276,14 +1274,14 @@ func (m *matchCall) print() string {
 // propegating values between Actions, allow them to parse based on some state.
 //
 // The value of the match is the value of the given rule.
-func Call(r Rule, fn func(Values) map[string]interface{}) Rule {
+func Call(r Rule, fn func(Values) map[string]any) Rule {
 	return &matchCall{rule: r, fn: fn}
 }
 
 type matchAction struct {
 	basicRule
 	rule Rule
-	fn   func(Values) interface{}
+	fn   func(Values) any
 }
 
 func (m *matchAction) match(s *state) result {
@@ -1321,7 +1319,7 @@ func (m *matchAction) print() string {
 // rule scope (toplevel or from invoking a Ref).
 //
 // The value of the match is the return value of the given function.
-func Action(r Rule, fn func(Values) interface{}) Rule {
+func Action(r Rule, fn func(Values) any) Rule {
 	return &matchScope{rule: &matchAction{rule: r, fn: fn}}
 }
 
@@ -1344,12 +1342,12 @@ func (m *matchApply) match(s *state) result {
 	return res
 }
 
-func (m *matchApply) expand(s *state) interface{} {
+func (m *matchApply) expand(s *state) any {
 	ret := reflect.New(m.typ)
 
 	rv := ret.Elem()
 
-	for i := 0; i < rv.NumField(); i++ {
+	for i := range rv.NumField() {
 		ft := m.typ.Field(i)
 
 		if !ft.IsExported() {
@@ -1401,7 +1399,7 @@ func (m *matchApply) print() string {
 // to a new value of Node.
 //
 // The value of the match is the newly created and populated struct.
-func Apply(rule Rule, v interface{}) Rule {
+func Apply(rule Rule, v any) Rule {
 	rv := reflect.ValueOf(v)
 	for rv.Kind() == reflect.Pointer {
 		rv = rv.Elem()
@@ -1473,7 +1471,7 @@ func (m *matchNamed) match(s *state) result {
 		if !s.values.set(m.name, res.value) {
 			var vm valMap
 			vm.s = s
-			vm.m = make(map[string]interface{})
+			vm.m = make(map[string]any)
 			for _, ent := range s.values.(*compactedValues).entries {
 				vm.set(ent.name, ent.val)
 			}
@@ -1510,7 +1508,7 @@ func Named(name string, rule Rule) Rule {
 type matchTransform struct {
 	basicRule
 	rule Rule
-	fn   func(str string) interface{}
+	fn   func(str string) any
 }
 
 func (m *matchTransform) match(s *state) result {
@@ -1547,7 +1545,7 @@ func (m *matchTransform) print() string {
 // was matched. The return value becomes the value of the rule.
 //
 // The value of the match is the return value of the given function.
-func Transform(r Rule, fn func(string) interface{}) Rule {
+func Transform(r Rule, fn func(string) any) Rule {
 	return &matchTransform{rule: r, fn: fn}
 }
 
@@ -1756,7 +1754,7 @@ type state struct {
 	pos       int
 	memos     map[int]map[Rule]*memoResult
 	values    Values
-	args      map[string]interface{}
+	args      map[string]any
 
 	filename string
 	linePos  []int
@@ -1963,7 +1961,7 @@ func (p *Parser) parse(r Rule, input, filename string) (*state, result) {
 // Parse attempts to match the given rule against the input string. If
 // the rule matches, the value of the rule is returned. If the rule matches
 // a portion of input, the ErrInputNotConsumed error is returned.
-func (p *Parser) Parse(r Rule, input string) (val interface{}, matched bool, err error) {
+func (p *Parser) Parse(r Rule, input string) (val any, matched bool, err error) {
 	s, res := p.parse(r, input, "")
 	if !res.matched {
 		return nil, false, nil
@@ -1982,7 +1980,7 @@ func (p *Parser) Parse(r Rule, input string) (val interface{}, matched bool, err
 }
 
 // ParseFile reads the data from the file at the path and parses it using the given Rule
-func (p *Parser) ParseFile(r Rule, path string) (val interface{}, matched bool, err error) {
+func (p *Parser) ParseFile(r Rule, path string) (val any, matched bool, err error) {
 	data, err := ioutil.ReadFile(path)
 	if err != nil {
 		return nil, false, err

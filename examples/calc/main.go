@@ -16,12 +16,12 @@ func main() {
 
 	expr.Set(
 		p.Or(
-			p.Action(p.Seq(p.Named("i", expr), p.S("+"), p.Named("j", term)), func(v p.Values) interface{} {
+			p.Action(p.Seq(p.Named("i", expr), p.S("+"), p.Named("j", term)), func(v p.Values) any {
 				i := v.Get("i").(int)
 				j := v.Get("j").(int)
 				return i + j
 			}),
-			p.Action(p.Seq(p.Named("i", expr), p.S("-"), p.Named("j", term)), func(v p.Values) interface{} {
+			p.Action(p.Seq(p.Named("i", expr), p.S("-"), p.Named("j", term)), func(v p.Values) any {
 				i := v.Get("i").(int)
 				j := v.Get("j").(int)
 				return i - j
@@ -31,7 +31,7 @@ func main() {
 	)
 
 	num.Set(
-		p.Transform(p.Plus(p.Range('0', '9')), func(s string) interface{} {
+		p.Transform(p.Plus(p.Range('0', '9')), func(s string) any {
 			i, _ := strconv.Atoi(s)
 			return i
 		}),
@@ -39,12 +39,12 @@ func main() {
 
 	term.Set(
 		p.Or(
-			p.Action(p.Seq(p.Named("i", term), p.S("*"), p.Named("j", num)), func(v p.Values) interface{} {
+			p.Action(p.Seq(p.Named("i", term), p.S("*"), p.Named("j", num)), func(v p.Values) any {
 				i := v.Get("i").(int)
 				j := v.Get("j").(int)
 				return i * j
 			}),
-			p.Action(p.Seq(p.Named("i", term), p.S("/"), p.Named("j", num)), func(v p.Values) interface{} {
+			p.Action(p.Seq(p.Named("i", term), p.S("/"), p.Named("j", num)), func(v p.Values) any {
 				i := v.Get("i").(int)
 				j := v.Get("j").(int)
 				return i / j

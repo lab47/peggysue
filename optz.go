@@ -171,7 +171,7 @@ func (m *matchPrefixTable) print() string {
 // in the escaped rule.
 //
 // The value of the match is the value of the sub-rule that matched correctly.
-func PrefixTable(entries ...interface{}) Rule {
+func PrefixTable(entries ...any) Rule {
 	matches := make(map[byte]Rule)
 
 	for i := 0; i < len(entries); i += 2 {

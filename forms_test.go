@@ -8,9 +8,9 @@ import (
 
 func TestForms(t *testing.T) {
 	type op struct {
-		lhs interface{}
+		lhs any
 		op  string
-		rhs interface{}
+		rhs any
 	}
 
 	t.Run("precendence", func(t *testing.T) {
@@ -24,7 +24,7 @@ func TestForms(t *testing.T) {
 					Named("op", Capture(Set('*', '/'))),
 					Named("rhs", n),
 				),
-				func(v Values) interface{} {
+				func(v Values) any {
 					return op{
 						lhs: v.Get("lhs"),
 						op:  v.Get("op").(string),
@@ -42,7 +42,7 @@ func TestForms(t *testing.T) {
 					Named("op", Capture(Set('+', '-'))),
 					Named("rhs", s),
 				),
-				func(v Values) interface{} {
+				func(v Values) any {
 					return op{
 						lhs: v.Get("lhs"),
 						op:  v.Get("op").(string),

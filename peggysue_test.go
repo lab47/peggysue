@@ -301,7 +301,7 @@ func TestParse(t *testing.T) {
 
 		r := require.New(t)
 
-		r1 := Action(S("1"), func(Values) interface{} { return 1 })
+		r1 := Action(S("1"), func(Values) any { return 1 })
 
 		result, ok, err := p.Parse(r1, "1")
 		r.NoError(err)
@@ -315,7 +315,7 @@ func TestParse(t *testing.T) {
 
 		r := require.New(t)
 
-		num := Transform(Re(`\d+`), func(str string) interface{} {
+		num := Transform(Re(`\d+`), func(str string) any {
 			i, _ := strconv.Atoi(str)
 			return i
 		})
@@ -326,7 +326,7 @@ func TestParse(t *testing.T) {
 				S("+"),
 				Named("j", num),
 			),
-			func(vals Values) interface{} {
+			func(vals Values) any {
 				i := vals.Get("i").(int)
 				j := vals.Get("j").(int)
 
@@ -368,7 +368,7 @@ func TestParse(t *testing.T) {
 
 		r := require.New(t)
 
-		num := Transform(Re(`\d+`), func(str string) interface{} {
+		num := Transform(Re(`\d+`), func(str string) any {
 			i, _ := strconv.Atoi(str)
 
 			return &testIntNode{Val: i}
@@ -376,7 +376,7 @@ func TestParse(t *testing.T) {
 
 		calc := Action(
 			Seq(Named("i", num), S("+"), Named("j", num)),
-			func(v Values) interface{} {
+			func(v Values) any {
 				return &testPlusNode{
 					i: v.Get("i").(*testIntNode),
 					j: v.Get("j").(*testIntNode),
@@ -407,7 +407,7 @@ func TestParse(t *testing.T) {
 
 		r := require.New(t)
 
-		num := Transform(Plus(Range('0', '9')), func(str string) interface{} {
+		num := Transform(Plus(Range('0', '9')), func(str string) any {
 			i, _ := strconv.Atoi(str)
 
 			return &testIntNode{Val: i}
@@ -421,7 +421,7 @@ func TestParse(t *testing.T) {
 				Seq(i, S("-"), j),
 				Seq(i, S("+"), j),
 			),
-			func(v Values) interface{} {
+			func(v Values) any {
 				return &testPlusNode{
 					i: v.Get("i").(*testIntNode),
 					j: v.Get("j").(*testIntNode),
@@ -458,14 +458,14 @@ func TestParse(t *testing.T) {
 
 	t.Run("a simple calculator", func(t *testing.T) {
 		r := require.New(t)
-		num := Transform(Plus(Range('0', '9')), func(s string) interface{} {
+		num := Transform(Plus(Range('0', '9')), func(s string) any {
 			i, _ := strconv.Atoi(s)
 			return i
 		})
 		x := R("x")
 		x.Set(
 			Or(
-				Action(Seq(Named("i", x), S("+"), Named("j", num)), func(v Values) interface{} {
+				Action(Seq(Named("i", x), S("+"), Named("j", num)), func(v Values) any {
 					i := v.Get("i").(int)
 					j := v.Get("j").(int)
 
@@ -495,7 +495,7 @@ func TestParse(t *testing.T) {
 
 		r := require.New(t)
 
-		numLit := Transform(Plus(Range('0', '9')), func(str string) interface{} {
+		numLit := Transform(Plus(Range('0', '9')), func(str string) any {
 			i, _ := strconv.Atoi(str)
 			return i
 		})
@@ -510,7 +510,7 @@ func TestParse(t *testing.T) {
 				Seq(i, S("-"), j),
 				Seq(i, S("+"), j),
 			),
-			func(v Values) interface{} {
+			func(v Values) any {
 				return &testPlusNode{
 					i: v.Get("i").(*testIntNode),
 					j: v.Get("j").(*testIntNode),
@@ -560,7 +560,7 @@ func (t *testPlusNode) SetPosition(start, end, line int, filename string) {
 func BenchmarkParse(b *testing.B) {
 	p := New()
 
-	num := Transform(Plus(Range('0', '9')), func(str string) interface{} {
+	num := Transform(Plus(Range('0', '9')), func(str string) any {
 		return nil
 	})
 
@@ -572,7 +572,7 @@ func BenchmarkParse(b *testing.B) {
 			Seq(i, S("-"), j),
 			Seq(i, S("+"), j),
 		),
-		func(v Values) interface{} {
+		func(v Values) any {
 			return nil
 		},
 	)

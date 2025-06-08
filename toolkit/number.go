@@ -28,7 +28,7 @@ func lower(c byte) byte {
 
 // AsBig returns either a big.Int or a big.Rat, depending on
 // the type of kind of number that was parsed.
-func (n *NumberValue) AsBig() (interface{}, error) {
+func (n *NumberValue) AsBig() (any, error) {
 	if n.PostDecimal == "" && n.Power == nil {
 		return n.AsBigInt()
 	}
@@ -179,28 +179,28 @@ var (
 	// HexInt parses a hexidemical integer, such as 0x1d.
 	HexInt = Numbers.Set("hex-int", p.Seq(p.S("0x"),
 		p.Transform(xset(hexSet),
-			func(s string) interface{} {
+			func(s string) any {
 				return &NumberValue{Base: 16, Str: s}
 			})))
 
 	// BinINt parses a base 2 (ie binary) number, such as 0b1101.
 	BinaryInt = Numbers.Set("binary-int", p.Seq(p.S("0b"), p.Transform(
-		xset(p.Range('0', '1')), func(s string) interface{} {
+		xset(p.Range('0', '1')), func(s string) any {
 			return &NumberValue{Base: 2, Str: s}
 		})))
 
 	// OctalInt parsers a base 8 (ie octal) number, such as 0644 and 0o644
 	OctalInt = Numbers.Set("octal-int", p.Or(p.Seq(p.S("0o"), p.Transform(
-		xset(p.Range('0', '7')), func(s string) interface{} {
+		xset(p.Range('0', '7')), func(s string) any {
 			return &NumberValue{Base: 8, Str: s}
 		})),
 		p.Seq(p.S("0"), p.Transform(
-			xset(p.Range('0', '7')), func(s string) interface{} {
+			xset(p.Range('0', '7')), func(s string) any {
 				return &NumberValue{Base: 8, Str: s}
 			}))))
 
 	// DecimalInt parses a base 10 (ie decimal) number, such as 42.
-	DecimalInt = Numbers.Set("decimal-int", p.Transform(xset(p.Range('0', '9')), func(s string) interface{} {
+	DecimalInt = Numbers.Set("decimal-int", p.Transform(xset(p.Range('0', '9')), func(s string) any {
 		return &NumberValue{Base: 10, Str: s}
 	}))
 
@@ -212,7 +212,7 @@ var (
 		DecimalInt,
 	))
 
-	setSign = func(v p.Values) interface{} {
+	setSign = func(v p.Values) any {
 		num := v.Get("num").(*NumberValue)
 
 		if s, ok := v.Get("sign").(bool); ok {
@@ -239,7 +239,7 @@ var (
 			p.S("."),
 			p.Named("rhs", DecimalInt),
 		),
-		func(v p.Values) interface{} {
+		func(v p.Values) any {
 			lhs := v.Get("lhs").(*NumberValue).Dup()
 			rhs := v.Get("rhs").(*NumberValue)
 
@@ -260,7 +260,7 @@ var (
 			p.Named("sign", p.Maybe(sign)),
 			p.Named("power", DecimalInt),
 		),
-		func(v p.Values) interface{} {
+		func(v p.Values) any {
 			lhs := v.Get("lhs").(*NumberValue).Dup()
 			rhs := v.Get("rhs").(string)
 
@@ -277,7 +277,7 @@ var (
 			return lhs
 		}))
 
-	sign = p.Transform(p.Set('-', '+'), func(s string) interface{} {
+	sign = p.Transform(p.Set('-', '+'), func(s string) any {
 		return s == "-"
 	})
 
@@ -297,7 +297,7 @@ var (
 			p.Maybe(p.Named("sign", sign)),
 			p.Named("power", DecimalInt),
 		),
-		func(v p.Values) interface{} {
+		func(v p.Values) any {
 			num := v.Get("num").(*NumberValue)
 			power := v.Get("power").(*NumberValue)
 

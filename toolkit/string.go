@@ -14,7 +14,7 @@ type StringValue struct {
 var (
 	em = func(in, out string) Rule {
 		r := out[0]
-		return p.Transform(p.S(in), func(s string) interface{} {
+		return p.Transform(p.S(in), func(s string) any {
 			return r
 		})
 	}
@@ -30,11 +30,11 @@ var (
 		`f`, em(`f`, "\f"),
 		`v`, em(`v`, "\v"),
 		`r`, em(`r`, "\r"),
-		`x`, p.Seq(p.S(`x`), p.Transform(p.Seq(hexSet, hexSet), func(s string) interface{} {
+		`x`, p.Seq(p.S(`x`), p.Transform(p.Seq(hexSet, hexSet), func(s string) any {
 			d := (digToByte(s[0]) << 4) | digToByte(s[1])
 			return string([]byte{d})
 		})),
-		`u`, p.Seq(p.S(`u`), p.Transform(p.Many(hexSet, 4, 4, nil), func(s string) interface{} {
+		`u`, p.Seq(p.S(`u`), p.Transform(p.Many(hexSet, 4, 4, nil), func(s string) any {
 			d :=
 				(rune(digToByte(s[0])) << 12) |
 					(rune(digToByte(s[1])) << 8) |
@@ -43,7 +43,7 @@ var (
 
 			return rune(d)
 		})),
-		`U`, p.Seq(p.S(`U`), p.Transform(p.Many(hexSet, 8, 8, nil), func(s string) interface{} {
+		`U`, p.Seq(p.S(`U`), p.Transform(p.Many(hexSet, 8, 8, nil), func(s string) any {
 			d :=
 				(rune(digToByte(s[0])) << 28) |
 					(rune(digToByte(s[1])) << 24) |
@@ -56,7 +56,7 @@ var (
 
 			return rune(d)
 		}))),
-		p.Seq(p.Transform(p.Seq(octalSet, octalSet, octalSet), func(s string) interface{} {
+		p.Seq(p.Transform(p.Seq(octalSet, octalSet, octalSet), func(s string) any {
 			d := (digToByte(s[0]) << 6) | (digToByte(s[1]) << 3) | digToByte(s[2])
 			return rune(d)
 		})),
@@ -98,7 +98,7 @@ func makeString(quote string, escaped Rule) Rule {
 
 	segment := p.Or(escaped, normal)
 
-	strBody := p.Many(p.Seq(p.Not(p.S(quote)), segment), 0, -1, func(vals []interface{}) interface{} {
+	strBody := p.Many(p.Seq(p.Not(p.S(quote)), segment), 0, -1, func(vals []any) any {
 		var sb strings.Builder
 
 		for _, v := range vals {
