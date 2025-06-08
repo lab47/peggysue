@@ -1,27 +1,27 @@
-package peggysue
+package regexp
 
 import (
 	"fmt"
 	"strings"
 )
 
-// RegexpNode is the base interface for all regexp AST nodes
-type RegexpNode interface {
+// Node is the base interface for all regexp AST nodes
+type Node interface {
 	String() string
 }
 
-// RegexpPattern is the root node of a regexp AST
-type RegexpPattern struct {
-	Node RegexpNode
+// Pattern is the root node of a regexp AST
+type Pattern struct {
+	Node Node
 }
 
-func (r *RegexpPattern) String() string {
+func (r *Pattern) String() string {
 	return r.Node.String()
 }
 
 // Alternation represents the | operator
 type Alternation struct {
-	Options []RegexpNode
+	Options []Node
 }
 
 func (a *Alternation) String() string {
@@ -34,7 +34,7 @@ func (a *Alternation) String() string {
 
 // Sequence represents a sequence of regexp elements
 type Sequence struct {
-	Elements []RegexpNode
+	Elements []Node
 }
 
 func (s *Sequence) String() string {
@@ -109,7 +109,7 @@ type Quantifier struct {
 	Min        int
 	Max        int  // -1 means unbounded
 	Greedy     bool // false for non-greedy (lazy) quantifiers
-	Expression RegexpNode
+	Expression Node
 }
 
 func (q *Quantifier) String() string {
@@ -154,7 +154,7 @@ func (q *Quantifier) String() string {
 
 // Group represents a grouped expression
 type Group struct {
-	Expression  RegexpNode
+	Expression  Node
 	Capturing   bool
 	Name        string // For named groups
 	NonCapturing bool

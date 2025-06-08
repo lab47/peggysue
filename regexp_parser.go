@@ -3,12 +3,14 @@ package peggysue
 import (
 	"fmt"
 	"strconv"
+
+	"github.com/lab47/peggysue/regexp"
 )
 
 // RegexpParser creates a parser for Go regexp syntax
 func RegexpParser() Rule {
 	// Create references for recursive rules
-	regexp := R("regexp")
+	top := R("regexp")
 	alternation := R("alternation")
 	sequence := R("sequence")
 	atom := R("atom")
@@ -17,25 +19,25 @@ func RegexpParser() Rule {
 	charClass := R("charClass")
 	charClassContent := R("charClassContent")
 	escape := R("escape")
-	
+
 	// Helper rules
 	ws := Star(Set(' ', '\t', '\n', '\r'))
 	digit := Range('0', '9')
 	hexDigit := Or(digit, Range('a', 'f'), Range('A', 'F'))
-	
+
 	// Number parser for quantifiers
 	number := Transform(Plus(digit), func(s string) any {
 		n, _ := strconv.Atoi(s)
 		return n
 	})
-	
+
 	// Escape sequences
 	simpleEscape := Transform(Seq(
 		S("\\"),
 		Set('n', 't', 'r', 'f', 'v', 'a', 'b', '\\', '.', '^', '$', '*', '+', '?', '(', ')', '[', ']', '{', '}', '|'),
 	), func(s string) any {
 		if len(s) < 2 {
-			return &EscapeSequence{Type: EscapeChar, Value: "\\"}
+			return &regexp.EscapeSequence{Type: regexp.EscapeChar, Value: "\\"}
 		}
 		ch := s[1]
 		var value string
@@ -57,64 +59,64 @@ func RegexpParser() Rule {
 		default:
 			value = string(ch)
 		}
-		return &EscapeSequence{Type: EscapeChar, Value: value}
+		return &regexp.EscapeSequence{Type: regexp.EscapeChar, Value: value}
 	})
-	
+
 	hexEscape := Action(Seq(
 		S("\\x"),
 		Named("hex", Transform(Count(hexDigit, 2), func(s string) any { return s })),
 	), func(v Values) any {
-		return &EscapeSequence{Type: EscapeHex, Value: v.Get("hex").(string)}
+		return &regexp.EscapeSequence{Type: regexp.EscapeHex, Value: v.Get("hex").(string)}
 	})
-	
+
 	unicodeEscape := Action(Seq(
 		S("\\u"),
 		Named("hex", Transform(Count(hexDigit, 4), func(s string) any { return s })),
 	), func(v Values) any {
-		return &EscapeSequence{Type: EscapeUnicode, Value: v.Get("hex").(string)}
+		return &regexp.EscapeSequence{Type: regexp.EscapeUnicode, Value: v.Get("hex").(string)}
 	})
-	
+
 	unicodeLongEscape := Action(Seq(
 		S("\\U"),
 		Named("hex", Transform(Count(hexDigit, 8), func(s string) any { return s })),
 	), func(v Values) any {
-		return &EscapeSequence{Type: EscapeUnicodeLong, Value: v.Get("hex").(string)}
+		return &regexp.EscapeSequence{Type: regexp.EscapeUnicodeLong, Value: v.Get("hex").(string)}
 	})
-	
+
 	// Character class escapes
 	charClassEscape := Transform(Seq(
 		S("\\"),
 		Set('d', 'D', 's', 'S', 'w', 'W'),
 	), func(s string) any {
 		if len(s) < 2 {
-			return &EscapeSequence{Type: EscapeChar, Value: "\\"}
+			return &regexp.EscapeSequence{Type: regexp.EscapeChar, Value: "\\"}
 		}
 		t := s[1]
-		var escType EscapeType
+		var escType regexp.EscapeType
 		switch t {
 		case 'd':
-			escType = EscapeDigit
+			escType = regexp.EscapeDigit
 		case 'D':
-			escType = EscapeNonDigit
+			escType = regexp.EscapeNonDigit
 		case 's':
-			escType = EscapeSpace
+			escType = regexp.EscapeSpace
 		case 'S':
-			escType = EscapeNonSpace
+			escType = regexp.EscapeNonSpace
 		case 'w':
-			escType = EscapeWord
+			escType = regexp.EscapeWord
 		case 'W':
-			escType = EscapeNonWord
+			escType = regexp.EscapeNonWord
 		}
-		return &EscapeSequence{Type: escType}
+		return &regexp.EscapeSequence{Type: escType}
 	})
-	
+
 	// Unicode property escapes
 	propertyName := Transform(Plus(Or(
 		Range('a', 'z'),
 		Range('A', 'Z'),
 		S("_"),
 	)), func(s string) any { return s })
-	
+
 	propertyEscape := Action(Seq(
 		S("\\"),
 		Named("type", Set('p', 'P')),
@@ -125,11 +127,11 @@ func RegexpParser() Rule {
 		t := v.Get("type").(string)[0]
 		prop := v.Get("prop").(string)
 		if t == 'P' {
-			return &EscapeSequence{Type: EscapeNonProperty, Value: prop}
+			return &regexp.EscapeSequence{Type: regexp.EscapeNonProperty, Value: prop}
 		}
-		return &EscapeSequence{Type: EscapeProperty, Value: prop}
+		return &regexp.EscapeSequence{Type: regexp.EscapeProperty, Value: prop}
 	})
-	
+
 	// All escape types
 	escape.Set(Or(
 		simpleEscape,
@@ -139,26 +141,26 @@ func RegexpParser() Rule {
 		charClassEscape,
 		propertyEscape,
 	))
-	
+
 	// Anchors
 	anchor := Or(
-		Action(S("^"), func(v Values) any { return &Anchor{Type: AnchorStart} }),
-		Action(S("$"), func(v Values) any { return &Anchor{Type: AnchorEnd} }),
-		Action(S("\\A"), func(v Values) any { return &Anchor{Type: AnchorStartText} }),
-		Action(S("\\z"), func(v Values) any { return &Anchor{Type: AnchorEndText} }),
-		Action(S("\\b"), func(v Values) any { return &Anchor{Type: AnchorWordBoundary} }),
-		Action(S("\\B"), func(v Values) any { return &Anchor{Type: AnchorNonWordBoundary} }),
+		Action(S("^"), func(v Values) any { return &regexp.Anchor{Type: regexp.AnchorStart} }),
+		Action(S("$"), func(v Values) any { return &regexp.Anchor{Type: regexp.AnchorEnd} }),
+		Action(S("\\A"), func(v Values) any { return &regexp.Anchor{Type: regexp.AnchorStartText} }),
+		Action(S("\\z"), func(v Values) any { return &regexp.Anchor{Type: regexp.AnchorEndText} }),
+		Action(S("\\b"), func(v Values) any { return &regexp.Anchor{Type: regexp.AnchorWordBoundary} }),
+		Action(S("\\B"), func(v Values) any { return &regexp.Anchor{Type: regexp.AnchorNonWordBoundary} }),
 	)
-	
+
 	// Character class content - can be either a character range or an escape sequence
 	charClassElement := Action(Seq(
 		Named("start", Or(
 			escape,
 			Transform(Seq(Not(Set(']', '\\')), Any()), func(s string) any {
 				if len(s) > 0 {
-					return &Literal{Char: rune(s[0])}
+					return &regexp.Literal{Char: rune(s[0])}
 				}
-				return &Literal{Char: ' '}
+				return &regexp.Literal{Char: ' '}
 			}),
 		)),
 		Maybe(Seq(
@@ -167,29 +169,29 @@ func RegexpParser() Rule {
 				escape,
 				Transform(Seq(Not(Set(']', '\\')), Any()), func(s string) any {
 					if len(s) > 0 {
-						return &Literal{Char: rune(s[0])}
+						return &regexp.Literal{Char: rune(s[0])}
 					}
-					return &Literal{Char: ' '}
+					return &regexp.Literal{Char: ' '}
 				}),
 			)),
 		)),
 	), func(v Values) any {
 		start := v.Get("start")
 		end := v.Get("end")
-		
+
 		// If it's a non-char escape sequence without a range, return it as-is
-		if esc, ok := start.(*EscapeSequence); ok && esc.Type != EscapeChar && end == nil {
+		if esc, ok := start.(*regexp.EscapeSequence); ok && esc.Type != regexp.EscapeChar && end == nil {
 			return esc
 		}
-		
+
 		var startRune, endRune rune
-		
+
 		// Extract rune from start
 		switch s := start.(type) {
-		case *Literal:
+		case *regexp.Literal:
 			startRune = s.Char
-		case *EscapeSequence:
-			if s.Type == EscapeChar && len(s.Value) > 0 {
+		case *regexp.EscapeSequence:
+			if s.Type == regexp.EscapeChar && len(s.Value) > 0 {
 				startRune = rune(s.Value[0])
 			} else {
 				// For non-literal escapes in a range, this is invalid
@@ -197,24 +199,24 @@ func RegexpParser() Rule {
 				return s
 			}
 		}
-		
+
 		if end == nil {
-			return CharRange{Start: startRune, End: startRune}
+			return regexp.CharRange{Start: startRune, End: startRune}
 		}
-		
+
 		// Extract rune from end
 		switch e := end.(type) {
-		case *Literal:
+		case *regexp.Literal:
 			endRune = e.Char
-		case *EscapeSequence:
-			if e.Type == EscapeChar && len(e.Value) > 0 {
+		case *regexp.EscapeSequence:
+			if e.Type == regexp.EscapeChar && len(e.Value) > 0 {
 				endRune = rune(e.Value[0])
 			}
 		}
-		
-		return CharRange{Start: startRune, End: endRune}
+
+		return regexp.CharRange{Start: startRune, End: endRune}
 	})
-	
+
 	charClassContent.Set(Many(charClassElement, 0, -1, func(vals []any) any {
 		elements := make([]any, 0, len(vals))
 		for _, v := range vals {
@@ -222,7 +224,7 @@ func RegexpParser() Rule {
 		}
 		return elements
 	}))
-	
+
 	// Character class
 	charClass.Set(Action(Seq(
 		S("["),
@@ -232,9 +234,9 @@ func RegexpParser() Rule {
 	), func(v Values) any {
 		negated := v.Get("neg").(string) == "^"
 		elements := v.Get("content").([]any)
-		return &CharClass{Negated: negated, Elements: elements}
+		return &regexp.CharClass{Negated: negated, Elements: elements}
 	}))
-	
+
 	// Grouping
 	namedGroup := Action(Seq(
 		S("(?P<"),
@@ -245,41 +247,41 @@ func RegexpParser() Rule {
 			S("_"),
 		)), func(s string) any { return s })),
 		S(">"),
-		Named("expr", regexp),
+		Named("expr", top),
 		S(")"),
 	), func(v Values) any {
-		return &Group{
-			Expression: v.Get("expr").(RegexpNode),
+		return &regexp.Group{
+			Expression: v.Get("expr").(regexp.Node),
 			Capturing:  true,
 			Name:       v.Get("name").(string),
 		}
 	})
-	
+
 	nonCapturingGroup := Action(Seq(
 		S("(?:"),
-		Named("expr", regexp),
+		Named("expr", top),
 		S(")"),
 	), func(v Values) any {
-		return &Group{
-			Expression:   v.Get("expr").(RegexpNode),
+		return &regexp.Group{
+			Expression:   v.Get("expr").(regexp.Node),
 			NonCapturing: true,
 		}
 	})
-	
+
 	capturingGroup := Action(Seq(
 		S("("),
 		Not(S("?")),
-		Named("expr", regexp),
+		Named("expr", top),
 		S(")"),
 	), func(v Values) any {
-		return &Group{
-			Expression: v.Get("expr").(RegexpNode),
+		return &regexp.Group{
+			Expression: v.Get("expr").(regexp.Node),
 			Capturing:  true,
 		}
 	})
-	
+
 	group.Set(Or(namedGroup, nonCapturingGroup, capturingGroup))
-	
+
 	// Literals - match any character that's not a special regexp character
 	literal := Transform(
 		Seq(
@@ -288,15 +290,15 @@ func RegexpParser() Rule {
 		),
 		func(s string) any {
 			if len(s) > 0 {
-				return &Literal{Char: rune(s[0])}
+				return &regexp.Literal{Char: rune(s[0])}
 			}
-			return &Literal{Char: ' '}
+			return &regexp.Literal{Char: ' '}
 		},
 	)
-	
+
 	// Dot wildcard
-	dot := Action(S("."), func(v Values) any { return &Dot{} })
-	
+	dot := Action(S("."), func(v Values) any { return &regexp.Dot{} })
+
 	// Atom (basic regexp element)
 	atom.Set(Or(
 		group,
@@ -306,47 +308,47 @@ func RegexpParser() Rule {
 		dot,
 		literal,
 	))
-	
+
 	// Quantifiers
 	starQuantifier := Action(Seq(
 		Named("expr", atom),
 		S("*"),
 		Named("lazy", Capture(Maybe(S("?")))),
 	), func(v Values) any {
-		return &Quantifier{
+		return &regexp.Quantifier{
 			Min:        0,
 			Max:        -1,
 			Greedy:     v.Get("lazy").(string) == "",
-			Expression: v.Get("expr").(RegexpNode),
+			Expression: v.Get("expr").(regexp.Node),
 		}
 	})
-	
+
 	plusQuantifier := Action(Seq(
 		Named("expr", atom),
 		S("+"),
 		Named("lazy", Capture(Maybe(S("?")))),
 	), func(v Values) any {
-		return &Quantifier{
+		return &regexp.Quantifier{
 			Min:        1,
 			Max:        -1,
 			Greedy:     v.Get("lazy").(string) == "",
-			Expression: v.Get("expr").(RegexpNode),
+			Expression: v.Get("expr").(regexp.Node),
 		}
 	})
-	
+
 	questionQuantifier := Action(Seq(
 		Named("expr", atom),
 		S("?"),
 		Named("lazy", Capture(Maybe(S("?")))),
 	), func(v Values) any {
-		return &Quantifier{
+		return &regexp.Quantifier{
 			Min:        0,
 			Max:        1,
 			Greedy:     v.Get("lazy").(string) == "",
-			Expression: v.Get("expr").(RegexpNode),
+			Expression: v.Get("expr").(regexp.Node),
 		}
 	})
-	
+
 	bracedQuantifier := Action(Seq(
 		Named("expr", atom),
 		S("{"),
@@ -365,7 +367,7 @@ func RegexpParser() Rule {
 		min := v.Get("min").(int)
 		hasComma := v.Get("hasComma")
 		lazy := v.Get("lazy")
-		
+
 		var max int
 		if hasCommaStr, ok := hasComma.(string); ok && hasCommaStr != "" {
 			// {n,} or {n,m}
@@ -378,15 +380,15 @@ func RegexpParser() Rule {
 			// {n} means exactly n
 			max = min
 		}
-		
-		return &Quantifier{
+
+		return &regexp.Quantifier{
 			Min:        min,
 			Max:        max,
 			Greedy:     lazy.(string) == "",
-			Expression: v.Get("expr").(RegexpNode),
+			Expression: v.Get("expr").(regexp.Node),
 		}
 	})
-	
+
 	quantifier.Set(Or(
 		starQuantifier,
 		plusQuantifier,
@@ -394,29 +396,29 @@ func RegexpParser() Rule {
 		bracedQuantifier,
 		atom, // No quantifier
 	))
-	
+
 	// Sequence (can be empty for alternation)
 	sequence.Set(Action(
 		Named("elements", Many(quantifier, 0, -1, func(vals []any) any {
-			elements := make([]RegexpNode, len(vals))
+			elements := make([]regexp.Node, len(vals))
 			for i, v := range vals {
-				elements[i] = v.(RegexpNode)
+				elements[i] = v.(regexp.Node)
 			}
 			return elements
 		})),
 		func(v Values) any {
-			elements := v.Get("elements").([]RegexpNode)
+			elements := v.Get("elements").([]regexp.Node)
 			if len(elements) == 0 {
 				// Empty sequence (for empty alternation)
-				return &Sequence{Elements: []RegexpNode{}}
+				return &regexp.Sequence{Elements: []regexp.Node{}}
 			}
 			if len(elements) == 1 {
 				return elements[0]
 			}
-			return &Sequence{Elements: elements}
+			return &regexp.Sequence{Elements: elements}
 		},
 	))
-	
+
 	// Alternation
 	alternation.Set(Action(Seq(
 		Named("first", sequence),
@@ -431,38 +433,38 @@ func RegexpParser() Rule {
 				return vals
 			})),
 	), func(v Values) any {
-		first := v.Get("first").(RegexpNode)
+		first := v.Get("first").(regexp.Node)
 		rest := v.Get("rest").([]any)
-		
+
 		if len(rest) == 0 {
 			return first
 		}
-		
-		alternatives := []RegexpNode{first}
+
+		alternatives := []regexp.Node{first}
 		for _, r := range rest {
-			alternatives = append(alternatives, r.(RegexpNode))
+			alternatives = append(alternatives, r.(regexp.Node))
 		}
-		
-		return &Alternation{Options: alternatives}
+
+		return &regexp.Alternation{Options: alternatives}
 	}))
-	
+
 	// Main regexp rule
-	regexp.Set(Action(Named("node", alternation), func(v Values) any {
-		return &RegexpPattern{Node: v.Get("node").(RegexpNode)}
+	top.Set(Action(Named("node", alternation), func(v Values) any {
+		return &regexp.Pattern{Node: v.Get("node").(regexp.Node)}
 	}))
-	
-	return regexp
+
+	return top
 }
 
 // ParseRegexp parses a Go regexp string and returns the AST
-func ParseRegexp(pattern string) (*RegexpPattern, error) {
+func ParseRegexp(pattern string) (*regexp.Pattern, error) {
 	if pattern == "" {
 		return nil, fmt.Errorf("empty regexp pattern")
 	}
-	
+
 	parser := New()
 	grammar := RegexpParser()
-	
+
 	val, matched, err := parser.Parse(grammar, pattern)
 	if err != nil {
 		return nil, err
@@ -470,6 +472,7 @@ func ParseRegexp(pattern string) (*RegexpPattern, error) {
 	if !matched {
 		return nil, fmt.Errorf("invalid regexp pattern: %q", pattern)
 	}
-	
-	return val.(*RegexpPattern), nil
+
+	return val.(*regexp.Pattern), nil
 }
+
