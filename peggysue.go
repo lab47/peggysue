@@ -3,16 +3,15 @@ package peggysue
 import (
 	"fmt"
 	"io/ioutil"
+	"log/slog"
 	"os"
 	"reflect"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"unicode/utf8"
-
-	"github.com/hashicorp/go-hclog"
-	"golang.org/x/exp/slices"
 )
 
 // SetPositioner is an optional interface. When values implement it, peggysue
@@ -1871,7 +1870,7 @@ func checkId(r Rule, res result) result {
 
 // Parser is the interface for running a rule against some input
 type Parser struct {
-	log     hclog.Logger
+	log     *slog.Logger
 	partial bool
 	debug   bool
 }
@@ -1884,7 +1883,7 @@ func WithDebug(on bool) Option {
 	}
 }
 
-func WithLogger(log hclog.Logger) Option {
+func WithLogger(log *slog.Logger) Option {
 	return func(p *Parser) {
 		p.log = log
 	}
@@ -1899,7 +1898,7 @@ func WithPartial(on bool) Option {
 // New creates a new Parser value
 func New(opts ...Option) *Parser {
 	p := &Parser{
-		log: hclog.L(),
+		log: slog.Default(),
 	}
 
 	for _, o := range opts {
