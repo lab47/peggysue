@@ -1050,7 +1050,7 @@ func (m *matchRef) match(s *state) result {
 	// https://github.com/we-like-parsers/pegen_experiments/blob/master/story7/memo.py
 
 	if s.memos == nil {
-		s.memos = make(map[int]map[Rule]*memoResult)
+		s.memos = memoMapPool.Get().(map[int]map[Rule]*memoResult)
 	}
 
 	pos := s.mark()
@@ -1211,11 +1211,31 @@ var cvPool = sync.Pool{
 	},
 }
 
+var memoMapPool = sync.Pool{
+	New: func() any {
+		return make(map[int]map[Rule]*memoResult)
+	},
+}
+
 func returnValues(v Values) {
 	if cv, ok := v.(*compactedValues); ok {
 		cv.used = 0
 		cvPool.Put(cv)
 	}
+}
+
+func returnMemos(memos map[int]map[Rule]*memoResult) {
+	if memos == nil {
+		return
+	}
+
+	// Clear the memo maps before returning to pool
+	for _, memo := range memos {
+		clear(memo)
+	}
+
+	clear(memos)
+	memoMapPool.Put(memos)
 }
 
 type valMap struct {
@@ -1971,6 +1991,8 @@ func (p *Parser) parse(r Rule, input, filename string) (*state, result) {
 // a portion of input, the ErrInputNotConsumed error is returned.
 func (p *Parser) Parse(r Rule, input string) (val any, matched bool, err error) {
 	s, res := p.parse(r, input, "")
+	defer returnMemos(s.memos)
+
 	if !res.matched {
 		return nil, false, nil
 	}
@@ -1995,6 +2017,8 @@ func (p *Parser) ParseFile(r Rule, path string) (val any, matched bool, err erro
 	}
 
 	s, res := p.parse(r, string(data), path)
+	defer returnMemos(s.memos)
+
 	if !res.matched {
 		return nil, false, nil
 	}
