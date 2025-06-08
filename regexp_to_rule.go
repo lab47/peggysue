@@ -2,6 +2,7 @@ package peggysue
 
 import (
 	"fmt"
+
 	"github.com/lab47/peggysue/regexp"
 )
 
@@ -10,15 +11,15 @@ func RegexpToRule(node regexp.Node) Rule {
 	switch n := node.(type) {
 	case *regexp.Pattern:
 		return RegexpToRule(n.Node)
-		
+
 	case *regexp.Literal:
 		// Single character literal
 		return S(string(n.Char))
-		
+
 	case *regexp.Dot:
 		// Match any character
 		return Any()
-		
+
 	case *regexp.Sequence:
 		// Sequence of rules
 		if len(n.Elements) == 0 {
@@ -28,12 +29,12 @@ func RegexpToRule(node regexp.Node) Rule {
 		if len(n.Elements) == 1 {
 			return RegexpToRule(n.Elements[0])
 		}
-		
+
 		// Special handling for sequences with anchors
 		// If we have a $ anchor at the end, we need to handle it specially
 		rules := make([]Rule, 0, len(n.Elements))
 		hasEndAnchor := false
-		
+
 		for i, elem := range n.Elements {
 			if anchor, ok := elem.(*regexp.Anchor); ok && anchor.Type == regexp.AnchorEnd && i == len(n.Elements)-1 {
 				hasEndAnchor = true
@@ -41,21 +42,21 @@ func RegexpToRule(node regexp.Node) Rule {
 			}
 			rules = append(rules, RegexpToRule(elem))
 		}
-		
+
 		var seqRule Rule
 		if len(rules) == 1 {
 			seqRule = rules[0]
 		} else {
 			seqRule = Seq(rules...)
 		}
-		
+
 		if hasEndAnchor {
 			// Wrap in a rule that checks we're at the end after matching
 			return &endOfInputRule{inner: seqRule}
 		}
-		
+
 		return seqRule
-		
+
 	case *regexp.Alternation:
 		// Choice between options
 		if len(n.Options) == 0 {
@@ -69,19 +70,19 @@ func RegexpToRule(node regexp.Node) Rule {
 			rules[i] = RegexpToRule(opt)
 		}
 		return Or(rules...)
-		
+
 	case *regexp.CharClass:
 		// Character class
 		if len(n.Elements) == 0 {
 			// Empty character class matches nothing
 			return Not(Any())
 		}
-		
+
 		// Optimize character classes by collecting single characters
 		// and using Set() for them, which is faster than Or()
 		var singleChars []rune
 		var rules []Rule
-		
+
 		for _, elem := range n.Elements {
 			switch e := elem.(type) {
 			case regexp.CharRange:
@@ -98,31 +99,31 @@ func RegexpToRule(node regexp.Node) Rule {
 				rules = append(rules, escapeToRule(e))
 			}
 		}
-		
+
 		// Build the final rule
 		var classRule Rule
-		
+
 		// Add Set rule for single characters if any
 		if len(singleChars) > 0 {
 			rules = append([]Rule{Set(singleChars...)}, rules...)
 		}
-		
+
 		if len(rules) == 1 {
 			classRule = rules[0]
 		} else {
 			classRule = Or(rules...)
 		}
-		
+
 		if n.Negated {
 			// Negated character class
 			return Seq(Not(classRule), Any())
 		}
 		return classRule
-		
+
 	case *regexp.Quantifier:
 		// Repetition
 		baseRule := RegexpToRule(n.Expression)
-		
+
 		if n.Min == 0 && n.Max == -1 {
 			// * quantifier
 			return Star(baseRule)
@@ -136,12 +137,12 @@ func RegexpToRule(node regexp.Node) Rule {
 			// General {min,max} quantifier
 			return Many(baseRule, n.Min, n.Max, nil)
 		}
-		
+
 	case *regexp.Group:
 		// Grouped expression - just return the inner rule
 		// (capturing behavior would need to be handled separately)
 		return RegexpToRule(n.Expression)
-		
+
 	case *regexp.Anchor:
 		// Anchors need special handling
 		switch n.Type {
@@ -156,10 +157,10 @@ func RegexpToRule(node regexp.Node) Rule {
 			// Other anchors not supported yet
 			return Not(Any()) // Never matches
 		}
-		
+
 	case *regexp.EscapeSequence:
 		return escapeToRule(n)
-		
+
 	default:
 		panic(fmt.Sprintf("unknown regexp node type: %T", node))
 	}
@@ -174,23 +175,23 @@ func escapeToRule(esc *regexp.EscapeSequence) Rule {
 			return S(esc.Value)
 		}
 		return S("\\")
-		
+
 	case regexp.EscapeDigit:
 		// \d - digit
 		return Range('0', '9')
-		
+
 	case regexp.EscapeNonDigit:
 		// \D - non-digit
 		return Seq(Not(Range('0', '9')), Any())
-		
+
 	case regexp.EscapeSpace:
 		// \s - whitespace
 		return Set(' ', '\t', '\n', '\r', '\f')
-		
+
 	case regexp.EscapeNonSpace:
 		// \S - non-whitespace
 		return Seq(Not(Set(' ', '\t', '\n', '\r', '\f')), Any())
-		
+
 	case regexp.EscapeWord:
 		// \w - word character [a-zA-Z0-9_]
 		return Or(
@@ -199,7 +200,7 @@ func escapeToRule(esc *regexp.EscapeSequence) Rule {
 			Range('0', '9'),
 			S("_"),
 		)
-		
+
 	case regexp.EscapeNonWord:
 		// \W - non-word character
 		wordChar := Or(
@@ -209,7 +210,7 @@ func escapeToRule(esc *regexp.EscapeSequence) Rule {
 			S("_"),
 		)
 		return Seq(Not(wordChar), Any())
-		
+
 	default:
 		// Other escape types not supported yet
 		return Not(Any()) // Never matches
@@ -266,12 +267,12 @@ func (r *endOfInputRule) match(s *state) result {
 	if !res.matched {
 		return res
 	}
-	
+
 	// Check if we're at the end of input
 	if s.pos == s.inputSize {
 		return res
 	}
-	
+
 	return result{matched: false}
 }
 
@@ -313,3 +314,4 @@ func Regexp(pattern string) Rule {
 	// Wrap the rule in Capture to return the matched text
 	return Capture(RegexpToRule(ast))
 }
+

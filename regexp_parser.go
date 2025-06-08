@@ -456,16 +456,18 @@ func RegexpParser() Rule {
 	return top
 }
 
+var (
+	reParser = New()
+	reGramar = RegexpParser()
+)
+
 // ParseRegexp parses a Go regexp string and returns the AST
 func ParseRegexp(pattern string) (*regexp.Pattern, error) {
 	if pattern == "" {
 		return nil, fmt.Errorf("empty regexp pattern")
 	}
 
-	parser := New()
-	grammar := RegexpParser()
-
-	val, matched, err := parser.Parse(grammar, pattern)
+	val, matched, err := reParser.Parse(reGramar, pattern)
 	if err != nil {
 		return nil, err
 	}
