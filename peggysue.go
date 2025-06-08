@@ -2,7 +2,6 @@ package peggysue
 
 import (
 	"fmt"
-	"io/ioutil"
 	"log/slog"
 	"os"
 	"reflect"
@@ -1817,7 +1816,7 @@ func (s *state) curRune() string {
 	}
 }
 
-func (s *state) advance(l int, r Rule) {
+func (s *state) advance(l int, _ Rule) {
 	s.pos += l
 
 	if s.maxRule == nil || s.pos > s.maxPos {
@@ -1981,7 +1980,7 @@ func (p *Parser) Parse(r Rule, input string) (val any, matched bool, err error) 
 
 // ParseFile reads the data from the file at the path and parses it using the given Rule
 func (p *Parser) ParseFile(r Rule, path string) (val any, matched bool, err error) {
-	data, err := ioutil.ReadFile(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, false, err
 	}
