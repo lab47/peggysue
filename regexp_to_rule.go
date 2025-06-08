@@ -76,21 +76,36 @@ func RegexpToRule(node RegexpNode) Rule {
 			return Not(Any())
 		}
 		
+		// Optimize character classes by collecting single characters
+		// and using Set() for them, which is faster than Or()
+		var singleChars []rune
 		var rules []Rule
+		
 		for _, elem := range n.Elements {
 			switch e := elem.(type) {
 			case CharRange:
 				if e.Start == e.End {
-					rules = append(rules, S(string(e.Start)))
+					// Single character - add to set
+					singleChars = append(singleChars, e.Start)
 				} else {
+					// Range - keep as separate rule
 					rules = append(rules, Range(e.Start, e.End))
 				}
 			case *EscapeSequence:
+				// For now, keep escape sequences as separate rules
+				// TODO: Could optimize \d, \w, etc. with custom predicates
 				rules = append(rules, escapeToRule(e))
 			}
 		}
 		
+		// Build the final rule
 		var classRule Rule
+		
+		// Add Set rule for single characters if any
+		if len(singleChars) > 0 {
+			rules = append([]Rule{Set(singleChars...)}, rules...)
+		}
+		
 		if len(rules) == 1 {
 			classRule = rules[0]
 		} else {
