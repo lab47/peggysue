@@ -29,7 +29,7 @@ func TestRegexpToRule(t *testing.T) {
 			input:   "world",
 			want:    false,
 		},
-		
+
 		// Dot wildcard
 		{
 			name:    "dot matches any",
@@ -45,7 +45,7 @@ func TestRegexpToRule(t *testing.T) {
 			want:    true,
 			value:   "a\nb",
 		},
-		
+
 		// Character classes
 		{
 			name:    "character class",
@@ -80,7 +80,7 @@ func TestRegexpToRule(t *testing.T) {
 			input:   "a",
 			want:    false,
 		},
-		
+
 		// Quantifiers
 		{
 			name:    "star quantifier empty",
@@ -123,7 +123,7 @@ func TestRegexpToRule(t *testing.T) {
 			want:    true,
 			value:   "",
 		},
-		
+
 		// Alternation
 		{
 			name:    "alternation first",
@@ -145,7 +145,7 @@ func TestRegexpToRule(t *testing.T) {
 			input:   "bird",
 			want:    false,
 		},
-		
+
 		// Groups
 		{
 			name:    "group",
@@ -161,7 +161,7 @@ func TestRegexpToRule(t *testing.T) {
 			want:    true,
 			value:   "ababab",
 		},
-		
+
 		// Escape sequences
 		{
 			name:    "digit escape",
@@ -211,7 +211,7 @@ func TestRegexpToRule(t *testing.T) {
 			want:    true,
 			value:   "_",
 		},
-		
+
 		// Complex patterns
 		{
 			name:    "email-like pattern",
@@ -242,15 +242,15 @@ func TestRegexpToRule(t *testing.T) {
 			value:   "example.com",
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			rule := Regexp(tt.pattern)
 			parser := New()
-			
+
 			val, matched, err := parser.Parse(rule, tt.input)
 			require.NoError(t, err)
-			
+
 			if tt.want {
 				assert.True(t, matched, "expected pattern to match")
 				if tt.value != nil {
@@ -317,7 +317,7 @@ func TestRegexpToRuleAnchors(t *testing.T) {
 			partial: true,
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			rule := Regexp(tt.pattern)
@@ -327,10 +327,10 @@ func TestRegexpToRuleAnchors(t *testing.T) {
 			} else {
 				parser = New()
 			}
-			
+
 			_, matched, err := parser.Parse(rule, tt.input)
 			require.NoError(t, err)
-			
+
 			if tt.want {
 				assert.True(t, matched, "expected pattern to match")
 			} else {
@@ -372,15 +372,15 @@ func TestRegexpToRuleCharacterClasses(t *testing.T) {
 			want:    true,
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			rule := Regexp(tt.pattern)
 			parser := New()
-			
+
 			_, matched, err := parser.Parse(rule, tt.input)
 			require.NoError(t, err)
-			
+
 			if tt.want {
 				assert.True(t, matched, "expected pattern to match")
 			} else {
@@ -422,15 +422,15 @@ func TestRegexpToRuleEdgeCases(t *testing.T) {
 			want:    true,
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			rule := Regexp(tt.pattern)
 			parser := New()
-			
+
 			_, matched, err := parser.Parse(rule, tt.input)
 			require.NoError(t, err)
-			
+
 			if tt.want {
 				assert.True(t, matched, "expected pattern to match")
 			} else {
@@ -451,12 +451,12 @@ func BenchmarkRegexpToRule(b *testing.B) {
 		{"number", "\\d{3}-\\d{3}-\\d{4}", "123-456-7890"},
 		{"complex", "((a|b)+c)*d", "abcbcacd"},
 	}
-	
+
 	for _, p := range patterns {
 		b.Run(p.name, func(b *testing.B) {
 			rule := Regexp(p.pattern)
 			parser := New()
-			
+
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				_, matched, err := parser.Parse(rule, p.input)
@@ -484,12 +484,12 @@ func BenchmarkRegexpVsRe(b *testing.B) {
 		{"alternation", "(cat|dog)", "cat"},
 		{"quantifier", "a+b*c?", "aaabbc"},
 	}
-	
+
 	for _, p := range patterns {
 		b.Run(p.name+"/Regexp", func(b *testing.B) {
 			rule := Regexp(p.pattern)
 			parser := New()
-			
+
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				_, matched, err := parser.Parse(rule, p.input)
@@ -501,11 +501,11 @@ func BenchmarkRegexpVsRe(b *testing.B) {
 				}
 			}
 		})
-		
+
 		b.Run(p.name+"/Re", func(b *testing.B) {
 			rule := Re(p.pattern)
 			parser := New()
-			
+
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				_, matched, err := parser.Parse(rule, p.input)

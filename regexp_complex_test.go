@@ -312,4 +312,3 @@ func TestRegexpComplexEmail(t *testing.T) {
 		})
 	})
 }
-

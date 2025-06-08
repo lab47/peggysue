@@ -17,46 +17,46 @@ func BenchmarkRegexpComprehensive(b *testing.B) {
 		// Simple patterns
 		{"literal", "hello", "hello world"},
 		{"dot", "h.llo", "hello world"},
-		
+
 		// Character classes
 		{"char_class", "[a-z]+", "hello"},
 		{"negated_class", "[^0-9]+", "hello"},
 		{"complex_class", "[a-zA-Z0-9._%-]+", "test.user_123"},
-		
+
 		// Quantifiers
 		{"star", "a*b", "aaab"},
 		{"plus", "a+b", "aaab"},
 		{"question", "colou?r", "color"},
 		{"exact", "a{3}", "aaa"},
 		{"range", "a{2,4}", "aaa"},
-		
+
 		// Groups and alternation
 		{"group", "(ab)+", "ababab"},
 		{"alternation", "cat|dog", "cat"},
 		{"complex_alt", "(red|green|blue)", "green"},
-		
+
 		// Anchors
 		{"start_anchor", "^hello", "hello world"},
 		{"end_anchor", "world$", "hello world"},
-		
+
 		// Escape sequences
 		{"digit", "\\d+", "12345"},
 		{"word", "\\w+", "hello_world"},
 		{"whitespace", "\\s+", "   \t\n"},
-		
+
 		// Complex patterns
 		{"email", "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}", "user@example.com"},
 		{"phone", "\\d{3}-\\d{3}-\\d{4}", "555-123-4567"},
 		{"url", "https?://[a-zA-Z0-9.-]+", "https://example.com"},
 		{"ipv4", "\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}", "192.168.1.1"},
-		
+
 		// Nested groups and backreferences
 		{"nested", "((a|b)+c)*d", "abcbcd"},
 		{"complex_nested", "(([a-z]+)\\s*=\\s*([0-9]+);?)+", "foo = 123; bar = 456;"},
-		
+
 		// Character class with ranges
 		{"multi_range", "[a-zA-Z0-9!@#$%^&*()]+", "Test123!@#"},
-		
+
 		// Lazy quantifiers
 		{"lazy_star", "a*?b", "aaab"},
 		{"lazy_plus", "a+?b", "aaab"},
@@ -64,7 +64,7 @@ func BenchmarkRegexpComprehensive(b *testing.B) {
 	}
 
 	b.ResetTimer()
-	
+
 	// Run the benchmark
 	for i := 0; i < b.N; i++ {
 		for _, tc := range patterns {
@@ -108,7 +108,7 @@ func BenchmarkRegexpParsingOnly(b *testing.B) {
 	}
 
 	b.ResetTimer()
-	
+
 	// Benchmark just the parsing phase
 	for i := 0; i < b.N; i++ {
 		for _, pattern := range patterns {

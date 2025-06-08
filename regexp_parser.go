@@ -477,4 +477,3 @@ func ParseRegexp(pattern string) (*regexp.Pattern, error) {
 
 	return val.(*regexp.Pattern), nil
 }
-

@@ -24,7 +24,7 @@ func BenchmarkRegexpParsing(b *testing.B) {
 		"((a|b)+c)*d",
 		"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}",
 	}
-	
+
 	for _, pattern := range patterns {
 		b.Run(pattern, func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
@@ -48,7 +48,7 @@ func BenchmarkRegexpWithParsing(b *testing.B) {
 		{"email", "\\w+@\\w+\\.\\w+", "test@example.com"},
 		{"phone", "\\d{3}-\\d{3}-\\d{4}", "555-123-4567"},
 	}
-	
+
 	for _, tc := range testCases {
 		b.Run(tc.name+"/Regexp", func(b *testing.B) {
 			parser := New()
@@ -61,7 +61,7 @@ func BenchmarkRegexpWithParsing(b *testing.B) {
 				}
 			}
 		})
-		
+
 		b.Run(tc.name+"/Re", func(b *testing.B) {
 			parser := New()
 			b.ResetTimer()
@@ -99,13 +99,13 @@ func BenchmarkRegexpPrecompiled(b *testing.B) {
 			[]string{"123", "4567", "89012", "345678"},
 		},
 	}
-	
+
 	for _, tc := range testCases {
 		b.Run(tc.name+"/Regexp", func(b *testing.B) {
 			rule := Regexp(tc.pattern)
 			parser := New()
 			b.ResetTimer()
-			
+
 			for i := 0; i < b.N; i++ {
 				input := tc.inputs[i%len(tc.inputs)]
 				_, matched, err := parser.Parse(rule, input)
@@ -114,12 +114,12 @@ func BenchmarkRegexpPrecompiled(b *testing.B) {
 				}
 			}
 		})
-		
+
 		b.Run(tc.name+"/Re", func(b *testing.B) {
 			rule := Re(tc.pattern)
 			parser := New()
 			b.ResetTimer()
-			
+
 			for i := 0; i < b.N; i++ {
 				input := tc.inputs[i%len(tc.inputs)]
 				_, matched, err := parser.Parse(rule, input)

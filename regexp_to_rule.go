@@ -175,9 +175,17 @@ func RegexpToRule(node regexp.Node) Rule {
 		}
 
 	case *regexp.Group:
-		// Grouped expression - just return the inner rule
-		// (capturing behavior would need to be handled separately)
-		return RegexpToRule(n.Expression)
+		// Convert the inner expression
+		innerRule := RegexpToRule(n.Expression)
+
+		// Handle capturing groups - only capture named groups
+		if n.Capturing && !n.NonCapturing && n.Name != "" {
+			// Named capture group - use Named rule
+			return Named(n.Name, Capture(innerRule))
+		}
+
+		// Non-capturing group or unnamed group - just return the inner rule
+		return innerRule
 
 	case *regexp.Anchor:
 		// Anchors need special handling
@@ -331,6 +339,9 @@ func (r *endOfInputRule) print() string {
 //   - Lazy quantifiers: *?, +?, ??
 //   - Alternation: cat|dog
 //   - Groups: (abc), (?:abc), (?P<name>abc)
+//     - Only named groups (?P<name>abc) create captures (Named+Capture rules)
+//     - Unnamed groups (abc) are treated as non-capturing
+//     - Non-capturing groups (?:abc) don't create captures
 //   - Anchors: ^, $
 //   - Dot: . (matches any character)
 //

@@ -69,7 +69,7 @@ func (d *Dot) String() string {
 
 // CharClass represents a character class [...]
 type CharClass struct {
-	Negated bool
+	Negated  bool
 	Elements []any // Can be CharRange or EscapeSequence
 }
 
@@ -114,7 +114,7 @@ type Quantifier struct {
 
 func (q *Quantifier) String() string {
 	expr := q.Expression.String()
-	
+
 	// Wrap in parentheses if needed
 	needsParens := false
 	switch q.Expression.(type) {
@@ -125,11 +125,11 @@ func (q *Quantifier) String() string {
 			needsParens = true
 		}
 	}
-	
+
 	if needsParens {
 		expr = "(?:" + expr + ")"
 	}
-	
+
 	var quant string
 	if q.Min == 0 && q.Max == -1 {
 		quant = "*"
@@ -144,26 +144,26 @@ func (q *Quantifier) String() string {
 	} else {
 		quant = fmt.Sprintf("{%d,%d}", q.Min, q.Max)
 	}
-	
+
 	if !q.Greedy {
 		quant += "?"
 	}
-	
+
 	return expr + quant
 }
 
 // Group represents a grouped expression
 type Group struct {
-	Expression  Node
-	Capturing   bool
-	Name        string // For named groups
+	Expression   Node
+	Capturing    bool
+	Name         string // For named groups
 	NonCapturing bool
 }
 
 func (g *Group) String() string {
 	var sb strings.Builder
 	sb.WriteRune('(')
-	
+
 	if g.NonCapturing {
 		sb.WriteString("?:")
 	} else if g.Name != "" {
@@ -171,7 +171,7 @@ func (g *Group) String() string {
 		sb.WriteString(g.Name)
 		sb.WriteRune('>')
 	}
-	
+
 	sb.WriteString(g.Expression.String())
 	sb.WriteRune(')')
 	return sb.String()
@@ -185,12 +185,12 @@ type Anchor struct {
 type AnchorType int
 
 const (
-	AnchorStart      AnchorType = iota // ^
-	AnchorEnd                          // $
-	AnchorStartText                    // \A
-	AnchorEndText                      // \z
-	AnchorWordBoundary                 // \b
-	AnchorNonWordBoundary              // \B
+	AnchorStart           AnchorType = iota // ^
+	AnchorEnd                               // $
+	AnchorStartText                         // \A
+	AnchorEndText                           // \z
+	AnchorWordBoundary                      // \b
+	AnchorNonWordBoundary                   // \B
 )
 
 func (a *Anchor) String() string {
