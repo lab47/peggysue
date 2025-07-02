@@ -1799,10 +1799,38 @@ type state struct {
 	bad       func(r Rule)
 
 	match func(r Rule) result
+	
+	// Error collection fields
+	collectErrors bool
+	failures      []RuleFailure
 }
 
 func (s *state) matchFast(r Rule) result {
 	return r.match(s)
+}
+
+func (s *state) setupBadGood(debug bool) {
+	if debug {
+		s.check = s.checkDebug
+		s.good = s.goodDebug
+		s.goodRange = s.goodRangeDebug
+		if s.collectErrors {
+			s.bad = s.badDebug
+		} else {
+			s.bad = s.badDebugNoCollect
+		}
+		s.match = s.matchDebug
+	} else {
+		s.check = checkId
+		s.good = goodId
+		s.goodRange = goodRangeId
+		if s.collectErrors {
+			s.bad = s.badNoDebug
+		} else {
+			s.bad = badId
+		}
+		s.match = s.matchFast
+	}
 }
 
 func (s *state) matchDebug(r Rule) result {
@@ -1876,9 +1904,67 @@ func goodId(r Rule) {}
 
 func (s *state) badDebug(r Rule) {
 	fmt.Printf("B @ %d (%q) => %s\n", s.mark(), s.curRune(), Print(r))
+	s.collectFailure(r)
+}
+
+func (s *state) badDebugNoCollect(r Rule) {
+	fmt.Printf("B @ %d (%q) => %s\n", s.mark(), s.curRune(), Print(r))
+}
+
+func (s *state) badNoDebug(r Rule) {
+	s.collectFailure(r)
 }
 
 func badId(r Rule) {}
+
+func (s *state) collectFailure(r Rule) {
+	// Collect failures at the current position
+	expected := getExpectedString(r)
+	s.failures = append(s.failures, RuleFailure{
+		Pos:      s.pos,
+		Rule:     r,
+		Expected: expected,
+	})
+}
+
+// getExpectedString returns a human-readable expectation for a rule
+func getExpectedString(r Rule) string {
+	// First check if the rule has been named
+	if br, ok := r.(interface{ Name() string }); ok {
+		if name := br.Name(); name != "" {
+			return name
+		}
+	}
+	
+	switch rule := r.(type) {
+	case *matchString:
+		return fmt.Sprintf("%q", rule.str)
+	case *matchCharRange:
+		if rule.start == rule.end {
+			return fmt.Sprintf("'%c'", rule.start)
+		}
+		return fmt.Sprintf("character in range '%c'-'%c'", rule.start, rule.end)
+	case *matchRunePredicate:
+		if rule.name != "" {
+			return rule.name
+		}
+		return "character matching predicate"
+	case *matchRegexp:
+		return fmt.Sprintf("pattern /%s/", rule.re.String())
+	case Ref:
+		if name := rule.Name(); name != "" {
+			return name
+		}
+		return Print(r)
+	default:
+		// Special case for EOS
+		str := Print(r)
+		if str == "<eos>" {
+			return "end of input"
+		}
+		return str
+	}
+}
 
 func (s *state) checkDebug(r Rule, res result) result {
 	if res.matched {
@@ -1967,38 +2053,75 @@ func (p *Parser) parse(r Rule, input, filename string) (*state, result) {
 		filename:  filename,
 	}
 
-	if p.debug {
-		s.check = s.checkDebug
-		s.good = s.goodDebug
-		s.goodRange = s.goodRangeDebug
-		s.bad = s.badDebug
-		s.match = s.matchDebug
-	} else {
-		s.check = checkId
-		s.good = goodId
-		s.goodRange = goodRangeId
-		s.bad = badId
-		s.match = s.matchFast
-	}
+	s.setupBadGood(p.debug)
 
 	defer returnValues(s.values)
 
 	return s, s.match(r)
 }
 
-// Parse attempts to match the given rule against the input string. If
-// the rule matches, the value of the rule is returned. If the rule matches
-// a portion of input, the ErrInputNotConsumed error is returned.
-func (p *Parser) Parse(r Rule, input string) (val any, matched bool, err error) {
-	s, res := p.parse(r, input, "")
+// Parse attempts to match the given rule against the input string with optional configuration.
+// By default, no error tracking is performed for backward compatibility.
+// Use WithErrors() to enable detailed error reporting.
+func (p *Parser) Parse(r Rule, input string, opts ...ParseOption) (val any, matched bool, err error) {
+	config := parseConfig{
+		collectErrors: false, // default to no error collection for backward compatibility
+		partialOk:     p.partial,
+		debug:         p.debug,
+	}
+	
+	for _, opt := range opts {
+		opt(&config)
+	}
+	
+	s := &state{
+		p:             p,
+		input:         input,
+		inputSize:     len(input),
+		pos:           0,
+		maxPos:        0,
+		filename:      config.filename,
+		collectErrors: config.collectErrors,
+		linePos:       computeLines(input),
+		values:        cvPool.Get().(Values),
+	}
+	
+	if config.collectErrors {
+		s.failures = make([]RuleFailure, 0)
+	}
+	
+	s.setupBadGood(config.debug)
+	
+	defer returnValues(s.values)
 	defer returnMemos(s.memos)
+	
+	res := s.match(r)
 
 	if !res.matched {
+		if config.collectErrors && len(s.failures) > 0 {
+			return nil, false, &ParseError{
+				Input:    input,
+				MaxPos:   s.maxPos,
+				Failures: s.failures,
+				filename: config.filename,
+				linePos:  s.linePos,
+			}
+		}
 		return nil, false, nil
 	}
 
-	if !p.partial {
+	if !config.partialOk {
 		if s.pos != s.inputSize {
+			if config.collectErrors {
+				return res.value, false, &ParseError{
+					Input:    input,
+					MaxPos:   s.pos,
+					Failures: []RuleFailure{{Pos: s.pos, Expected: "end of input"}},
+					filename: config.filename,
+					linePos:  s.linePos,
+				}
+			}
+			
 			return res.value, false, &ErrInputNotConsumed{
 				MaxPos:  s.maxPos,
 				MaxRule: s.maxRule,
@@ -2010,30 +2133,16 @@ func (p *Parser) Parse(r Rule, input string) (val any, matched bool, err error) 
 }
 
 // ParseFile reads the data from the file at the path and parses it using the given Rule
-func (p *Parser) ParseFile(r Rule, path string) (val any, matched bool, err error) {
+func (p *Parser) ParseFile(r Rule, path string, opts ...ParseOption) (val any, matched bool, err error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, false, err
 	}
 
-	s, res := p.parse(r, string(data), path)
-	defer returnMemos(s.memos)
-
-	if !res.matched {
-		return nil, false, nil
-	}
-
-	if !p.partial {
-		if s.pos != s.inputSize {
-			return res.value, false, &ErrInputNotConsumed{
-				MaxPos:  s.maxPos,
-				MaxRule: s.maxRule,
-			}
-		}
-	}
-
-	return res.value, true, nil
-
+	// Automatically set filename if not provided
+	optsWithFilename := append([]ParseOption{WithFilename(path)}, opts...)
+	
+	return p.Parse(r, string(data), optsWithFilename...)
 }
 
 // Print outputs either the rules name (if it has one) or a description
