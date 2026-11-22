@@ -9,6 +9,9 @@ import (
 type ParseError struct {
 	Input       string
 	MaxPos      int
+	// Failures are the rules that failed at the furthest position any
+	// rule failed at. Failures before it are dropped as the parse goes,
+	// so a parse that succeeds pays only for recording them.
 	Failures    []RuleFailure
 	filename    string
 	linePos     []int
@@ -211,6 +214,9 @@ func Parse(r Rule, input string, opts ...ParseOption) (val any, matched bool, er
 	
 	if !res.matched {
 		if config.collectErrors && len(s.failures) > 0 {
+			for i := range s.failures {
+				s.failures[i].Expected = getExpectedString(s.failures[i].Rule)
+			}
 			return nil, false, &ParseError{
 				Input:    input,
 				MaxPos:   s.maxPos,

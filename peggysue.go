@@ -1919,12 +1919,14 @@ func badId(r Rule) {}
 
 func (s *state) collectFailure(r Rule) {
 	// Collect failures at the current position
-	expected := getExpectedString(r)
-	s.failures = append(s.failures, RuleFailure{
-		Pos:      s.pos,
-		Rule:     r,
-		Expected: expected,
-	})
+	// Only the furthest failures make the error, so earlier ones are
+	// dropped, and what each expected is named only for an error.
+	if n := len(s.failures); n > 0 && s.failures[n-1].Pos > s.pos {
+		return
+	} else if n > 0 && s.failures[n-1].Pos < s.pos {
+		s.failures = s.failures[:0]
+	}
+	s.failures = append(s.failures, RuleFailure{Pos: s.pos, Rule: r})
 }
 
 // getExpectedString returns a human-readable expectation for a rule
@@ -2099,6 +2101,9 @@ func (p *Parser) Parse(r Rule, input string, opts ...ParseOption) (val any, matc
 
 	if !res.matched {
 		if config.collectErrors && len(s.failures) > 0 {
+			for i := range s.failures {
+				s.failures[i].Expected = getExpectedString(s.failures[i].Rule)
+			}
 			return nil, false, &ParseError{
 				Input:    input,
 				MaxPos:   s.maxPos,

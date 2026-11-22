@@ -233,3 +233,19 @@ func TestParseError_Preview(t *testing.T) {
 	assert.Contains(t, errMsg, input)
 	assert.Contains(t, errMsg, strings.Repeat(" ", 29) + "^")
 }
+// TestParse_FailuresAreFurthest checks that a failed parse reports only
+// the failures at the furthest position, each naming what it expected,
+// though earlier alternatives failed before it.
+func TestParse_FailuresAreFurthest(t *testing.T) {
+	rule := Seq(Or(S("xy"), S("a")), Or(S("bc"), S("bd")), S("e"))
+	_, matched, err := Parse(rule, "abdz", WithErrors())
+	require.False(t, matched)
+	pe, ok := err.(*ParseError)
+	require.True(t, ok, "got %T", err)
+	require.NotEmpty(t, pe.Failures)
+	for _, f := range pe.Failures {
+		assert.Equal(t, 3, f.Pos, "failure %+v", f)
+		assert.NotEmpty(t, f.Expected)
+	}
+	assert.Contains(t, err.Error(), `expected "e"`)
+}
